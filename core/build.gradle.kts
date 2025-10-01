@@ -5,11 +5,24 @@ plugins {
 
     // 应用 Application 插件以添加对构建可执行 JVM 应用程序的支持。
     application
+    
+    // Kotlin 序列化插件
+    alias(libs.plugins.kotlinPluginSerialization)
 }
 
 dependencies {
     // 项目 "app" 依赖于项目 "utils"。（项目路径用 ":" 分隔，因此 ":utils" 指的是顶层的 "utils" 项目。）
     implementation(project(":utils"))
+    
+    // Kotlin 序列化和 TOML 解析（用于数据模型）
+    implementation(libs.kotlinxSerialization)
+    implementation(libs.tomlkt)
+    
+    // 测试依赖
+    testImplementation(libs.kotestRunnerJunit5)
+    testImplementation(libs.kotestAssertionsCore)
+    testImplementation(libs.kotestProperty)
+    testImplementation(project(":config-toml"))
 }
 
 application {

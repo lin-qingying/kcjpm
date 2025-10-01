@@ -21,5 +21,6 @@ plugins {
 // 了解更多关于使用 Gradle 构建项目的信息 - https://docs.gradle.org/8.7/userguide/multi_project_builds.html
 include(":core")
 include(":utils")
+include(":config-toml")
 
 rootProject.name = "kcjpm"

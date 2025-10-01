@@ -1,0 +1,127 @@
+# 配置文件
+# 仓颉语言包管理器配置
+
+# ===== 包基本信息 =====
+[package]
+name = "my-cangjie-project"
+version = "0.1.0"
+cjc-version = "1.0.0"
+output-type = "executable"  # executable | library | static-library | dynamic-library
+authors = ["Zhang San <zhangsan@example.com>"]
+description = "一个使用仓颉语言编写的示例项目"
+license = "Apache-2.0"
+repository = "https://github.com/example/my-cangjie-project"
+
+# ===== 远程仓库配置 =====
+[registry]
+# 默认仓库 URL（类似 Maven Central）
+default = "https://repo.cangjie-lang.cn"
+
+# 自定义仓库（可选）
+mirrors = [
+    "https://mirrors.tencent.com/cangjie",
+    "https://mirrors.aliyun.com/cangjie"
+]
+
+# 私有仓库（需要认证）
+[registry.private]
+url = "https://private-repo.example.com"
+username = "${REPO_USERNAME}"  # 支持环境变量
+token = "${REPO_TOKEN}"
+
+# ===== 依赖声明 =====
+[dependencies]
+# 远程仓库依赖（最简形式）
+std-http = "1.2.0"
+std-json = "2.1.5"
+
+# 远程仓库依赖（完整形式）
+std-crypto = { version = "1.0.0", registry = "default" }
+
+# 本地路径依赖
+local-lib = { path = "../local-lib" }
+
+# Git 依赖（标签）
+http-client = { git = "https://github.com/cangjie/http-client", tag = "v1.2.0" }
+
+# Git 依赖（分支）
+experimental = { git = "https://github.com/cangjie/experimental", branch = "develop" }
+
+# Git 依赖（提交）
+fixed-lib = { git = "https://github.com/cangjie/lib", commit = "abc123" }
+
+# 可选依赖
+optional-feature = { version = "0.5.0", optional = true }
+
+# ===== 目标平台配置 =====
+# 所有平台共享配置
+[target]
+compiler-flags = ["-O2"]
+linker-flags = []
+
+# 平台特定配置（可选覆盖）
+[target.windows]
+linker-flags = ["-static"]
+bin-paths = ["${CANGJIE_STDX_PATH}", "C:/libs"]
+
+[target.linux]
+linker-flags = ["-lpthread", "-ldl"]
+bin-paths = ["${CANGJIE_STDX_PATH}", "/usr/local/lib"]
+
+[target.macos]
+linker-flags = ["-framework", "Foundation"]
+bin-paths = ["${CANGJIE_STDX_PATH}"]
+
+# ===== 构建配置 =====
+[build]
+# 基本路径
+source-dir = "src"
+output-dir = "target"
+
+# 性能选项
+parallel = true       # 启用并行构建
+incremental = true    # 启用增量编译
+jobs = 8             # 并行任务数（默认为 CPU 核心数）
+
+# 构建钩子
+pre-build = ["echo 'Starting build...'"]
+post-build = ["echo 'Build completed!'"]
+
+# ===== FFI 配置 =====
+[ffi]
+includes = ["/usr/include", "./native/include"]
+lib-paths = ["/usr/lib", "./native/lib"]
+libs = ["curl", "ssl"]
+c-flags = ["-std=c11"]
+cxx-flags = ["-std=c++17"]
+
+# ===== 工作空间 =====
+[workspace]
+members = ["packages/*"]  # 支持通配符
+default-members = ["packages/cli"]
+
+# ===== 构建配置文件 =====
+[profile.debug]
+optimization-level = 0
+debug = true
+
+[profile.release]
+optimization-level = 2
+debug = false
+lto = false  # 链接时优化
+
+[profile.release-lto]
+optimization-level = 3
+debug = false
+lto = true
+
+# ===== 发布配置 =====
+[publish]
+registry = "default"
+exclude = ["tests/*", "docs/*", ".git/*"]
+
+# ===== 测试配置 =====
+[test]
+dir = "tests"
+timeout = 300
+parallel = true
