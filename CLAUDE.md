@@ -19,7 +19,7 @@
 
 此项目遵循 Gradle 的多模块模式，包含两个子项目：
 
-- **app** (`:app`): 主应用程序模块，入口点为 `org.cangnova.app.AppKt`。依赖于 `:utils`。
+- **core** (`:core`): 主应用程序模块。
 - **utils** (`:utils`): 共享工具模块，支持 Kotlin 序列化。
 
 ### 约定插件系统
