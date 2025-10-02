@@ -1,56 +1,169 @@
 package org.cangnova.kcjpm.build
 
 import java.nio.file.Path
+import kotlin.contracts.ExperimentalContracts
+import kotlin.contracts.InvocationKind
+import kotlin.contracts.contract
 
-/**
- * 编译上下文接口，封装编译所需的所有配置信息和依赖关系。
- *
- * 该接口提供了构建系统核心的数据抽象，包括项目结构、构建配置、依赖管理和源文件信息。
- * 实现类需要提供验证逻辑和编译器参数转换功能。
- *
- */
 interface CompilationContext {
-    /**
-     * 项目根目录路径
-     */
     val projectRoot: Path
-    
-    /**
-     * 构建配置，包含编译目标、优化级别等设置
-     */
     val buildConfig: BuildConfig
-    
-    /**
-     * 项目依赖列表，支持路径依赖和 Git 依赖
-     */
     val dependencies: List<Dependency>
-    
-    /**
-     * 待编译的源文件列表
-     */
     val sourceFiles: List<Path>
-    
-    /**
-     * 编译输出路径
-     */
     val outputPath: Path
     
-    /**
-     * 验证编译上下文的有效性。
-     *
-     * 检查项目路径、源文件、依赖配置等是否符合要求。
-     *
-     * @return 验证结果，失败时包含详细错误信息
-     */
     fun validate(): Result<Unit>
     
-    /**
-     * 将编译上下文转换为编译器命令行参数。
-     *
-     * @return 编译器参数列表
-     */
     fun toCompilerArgs(): List<String>
 }
+
+@DslMarker
+annotation class CompilationDsl
+
+@CompilationDsl
+class CompilationContextBuilder {
+    private var projectRoot: Path? = null
+    private var buildConfig: BuildConfig? = null
+    private val dependencies = mutableListOf<Dependency>()
+    private val sourceFiles = mutableListOf<Path>()
+    private var outputPath: Path? = null
+    
+    /**
+     * 设置项目根目录
+     */
+    fun projectRoot(path: Path) = apply { this.projectRoot = path }
+    
+    /**
+     * 配置构建设置
+     */
+    fun buildConfig(block: BuildConfigBuilder.() -> Unit) = apply {
+        this.buildConfig = BuildConfigBuilder().apply(block).build()
+    }
+    
+    /**
+     * 添加依赖
+     */
+    fun dependency(dependency: Dependency) = apply { dependencies.add(dependency) }
+    
+    /**
+     * 添加多个依赖
+     */
+    fun dependencies(vararg deps: Dependency) = apply { dependencies.addAll(deps) }
+    
+    /**
+     * 添加依赖集合
+     */
+    fun dependencies(deps: Collection<Dependency>) = apply { dependencies.addAll(deps) }
+    
+    /**
+     * 添加源文件
+     */
+    fun sourceFile(file: Path) = apply { sourceFiles.add(file) }
+    
+    /**
+     * 添加多个源文件
+     */
+    fun sourceFiles(vararg files: Path) = apply { sourceFiles.addAll(files) }
+    
+    /**
+     * 添加源文件集合
+     */
+    fun sourceFiles(files: Collection<Path>) = apply { sourceFiles.addAll(files) }
+    
+    /**
+     * 设置输出路径
+     */
+    fun outputPath(path: Path) = apply { this.outputPath = path }
+    
+    /**
+     * 构建编译上下文
+     */
+    fun build(): CompilationContext {
+        return DefaultCompilationContext(
+            projectRoot = requireNotNull(projectRoot) { "项目根目录不能为空" },
+            buildConfig = requireNotNull(buildConfig) { "构建配置不能为空" },
+            dependencies = dependencies.toList(),
+            sourceFiles = sourceFiles.toList(),
+            outputPath = requireNotNull(outputPath) { "输出路径不能为空" }
+        )
+    }
+}
+
+/**
+ * 构建配置构建器
+ */
+@CompilationDsl
+class BuildConfigBuilder {
+    private var target: CompilationTarget? = null
+    private var optimizationLevel: OptimizationLevel = OptimizationLevel.RELEASE
+    private var debugInfo: Boolean = false
+    private var parallel: Boolean = true
+    private var maxParallelSize: Int = Runtime.getRuntime().availableProcessors()
+    private var incremental: Boolean = true
+    private var verbose: Boolean = false
+    
+    fun target(target: CompilationTarget) = apply { this.target = target }
+    fun optimizationLevel(level: OptimizationLevel) = apply { this.optimizationLevel = level }
+    fun debugInfo(enabled: Boolean = true) = apply { this.debugInfo = enabled }
+    fun parallel(enabled: Boolean = true, maxSize: Int = Runtime.getRuntime().availableProcessors()) = apply {
+        this.parallel = enabled
+        this.maxParallelSize = maxSize
+    }
+    fun incremental(enabled: Boolean = true) = apply { this.incremental = enabled }
+    fun verbose(enabled: Boolean = true) = apply { this.verbose = enabled }
+    
+    fun build(): BuildConfig = BuildConfig(
+        target = requireNotNull(target) { "编译目标不能为空" },
+        optimizationLevel = optimizationLevel,
+        debugInfo = debugInfo,
+        parallel = parallel,
+        maxParallelSize = maxParallelSize,
+        incremental = incremental,
+        verbose = verbose
+    )
+}
+
+/**
+ * 编译上下文 DSL 入口函数
+ */
+@OptIn(ExperimentalContracts::class)
+inline fun buildCompilationContext(
+    crossinline block: CompilationContextBuilder.() -> Unit
+): CompilationContext {
+    contract {
+        callsInPlace(block, InvocationKind.EXACTLY_ONCE)
+    }
+    return CompilationContextBuilder().apply(block).build()
+}
+
+/**
+ * 在编译上下文中执行操作的扩展函数
+ */
+context(ctx: CompilationContext)
+inline fun <T> withCurrentTarget(block: (CompilationTarget) -> T): T {
+    return block(ctx.buildConfig.target)
+}
+
+/**
+ * 检查是否为调试构建
+ */
+context(ctx: CompilationContext) 
+val isDebugBuild: Boolean
+    get() = ctx.buildConfig.optimizationLevel == OptimizationLevel.DEBUG
+
+/**
+ * 检查是否启用并行编译
+ */
+context(ctx: CompilationContext)
+val isParallelEnabled: Boolean
+    get() = ctx.buildConfig.parallel
+
+/**
+ * 获取源文件数量
+ */
+context(ctx: CompilationContext)
+val sourceFileCount: Int
+    get() = ctx.sourceFiles.size
 
 /**
  * 构建配置数据类，包含编译过程的各项设置。
