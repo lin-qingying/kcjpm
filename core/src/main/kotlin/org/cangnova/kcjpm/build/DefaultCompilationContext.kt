@@ -1,5 +1,6 @@
 package org.cangnova.kcjpm.build
 
+import org.cangnova.kcjpm.config.OutputType
 import java.nio.file.Files
 import java.nio.file.Path
 import kotlin.io.path.exists
@@ -29,7 +30,8 @@ data class DefaultCompilationContext(
     override val buildConfig: BuildConfig,
     override val dependencies: List<Dependency>,
     override val sourceFiles: List<Path>,
-    override val outputPath: Path
+    override val outputPath: Path,
+    override val outputType: OutputType = OutputType.EXECUTABLE
 ) : CompilationContext {
     
     /**
@@ -94,76 +96,7 @@ data class DefaultCompilationContext(
         }
     }
     
-    /**
-     * 将编译上下文转换为仓颉编译器命令行参数。
-     *
-     * 参数生成规则：
-     * - 目标平台：`--target <triple>`
-     * - 优化级别：`-O0`（DEBUG）、`-O2`（RELEASE）、`-Os`（SIZE）、`-O3`（SPEED）
-     * - 调试信息：`-g`
-     * - 详细输出：`-v`
-     * - 输出路径：`-o <path>`
-     * - 路径依赖：`--path-dependency <name>=<path>`
-     * - Git 依赖：`--git-dependency <name>=<repo>#<ref>`
-     * - 远程仓库依赖：`--registry-dependency <name>=<version>@<registry>`
-     * - 源文件：追加在参数末尾
-     *
-     * @return 完整的编译器参数列表
-     */
-    override fun toCompilerArgs(): List<String> = buildList {
-        // 目标平台
-        add("--target")
-        add(buildConfig.target.triple)
-        
-        // 优化级别
-        when (buildConfig.optimizationLevel) {
-            OptimizationLevel.DEBUG -> add("-O0")
-            OptimizationLevel.RELEASE -> add("-O2")
-            OptimizationLevel.SIZE -> add("-Os")
-            OptimizationLevel.SPEED -> add("-O3")
-        }
-        
-        // 调试信息
-        if (buildConfig.debugInfo) {
-            add("-g")
-        }
-        
-        // 详细输出
-        if (buildConfig.verbose) {
-            add("-v")
-        }
-        
-        // 输出路径
-        add("-o")
-        add(outputPath.toString())
-        
-        // 依赖项
-        dependencies.forEach { dep ->
-            when (dep) {
-                is Dependency.PathDependency -> {
-                    add("--path-dependency")
-                    add("${dep.name}=${dep.path}")
-                }
-                is Dependency.GitDependency -> {
-                    add("--git-dependency")
-                    val ref = when (val gitRef = dep.reference) {
-                        is Dependency.GitReference.Tag -> "tag=${gitRef.name}"
-                        is Dependency.GitReference.Branch -> "branch=${gitRef.name}"
-                        is Dependency.GitReference.Commit -> "commit=${gitRef.hash}"
-                    }
-                    add("${dep.name}=${dep.url}#$ref")
-                }
-                is Dependency.RegistryDependency -> {
-                    add("--registry-dependency")
-                    add("${dep.name}=${dep.version}@${dep.registryUrl}")
-                }
-            }
-        }
-        
-        // 源文件
-        addAll(sourceFiles.map { it.toString() })
-    }
-    
+
     companion object {
         /**
          * 创建 Builder 实例用于构建 [DefaultCompilationContext]。
@@ -184,6 +117,7 @@ data class DefaultCompilationContext(
         private val dependencies = mutableListOf<Dependency>()
         private val sourceFiles = mutableListOf<Path>()
         private var outputPath: Path? = null
+        private var outputType: OutputType = OutputType.EXECUTABLE
         
         /**
          * 设置项目根目录。
@@ -241,6 +175,8 @@ data class DefaultCompilationContext(
          */
         fun outputPath(path: Path) = apply { this.outputPath = path }
         
+        fun outputType(type: OutputType) = apply { this.outputType = type }
+        
         /**
          * 构建 [DefaultCompilationContext] 实例。
          *
@@ -256,7 +192,8 @@ data class DefaultCompilationContext(
                 buildConfig = buildConfig,
                 dependencies = dependencies.toList(),
                 sourceFiles = sourceFiles.toList(),
-                outputPath = output
+                outputPath = output,
+                outputType = outputType
             )
         }
     }

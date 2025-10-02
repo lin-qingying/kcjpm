@@ -1,5 +1,6 @@
 package org.cangnova.kcjpm.build
 
+import org.cangnova.kcjpm.config.OutputType
 import java.nio.file.Path
 import kotlin.contracts.ExperimentalContracts
 import kotlin.contracts.InvocationKind
@@ -11,130 +12,13 @@ interface CompilationContext {
     val dependencies: List<Dependency>
     val sourceFiles: List<Path>
     val outputPath: Path
+    val outputType: OutputType
     
     fun validate(): Result<Unit>
-    
-    fun toCompilerArgs(): List<String>
 }
 
 @DslMarker
 annotation class CompilationDsl
-
-@CompilationDsl
-class CompilationContextBuilder {
-    private var projectRoot: Path? = null
-    private var buildConfig: BuildConfig? = null
-    private val dependencies = mutableListOf<Dependency>()
-    private val sourceFiles = mutableListOf<Path>()
-    private var outputPath: Path? = null
-    
-    /**
-     * 设置项目根目录
-     */
-    fun projectRoot(path: Path) = apply { this.projectRoot = path }
-    
-    /**
-     * 配置构建设置
-     */
-    fun buildConfig(block: BuildConfigBuilder.() -> Unit) = apply {
-        this.buildConfig = BuildConfigBuilder().apply(block).build()
-    }
-    
-    /**
-     * 添加依赖
-     */
-    fun dependency(dependency: Dependency) = apply { dependencies.add(dependency) }
-    
-    /**
-     * 添加多个依赖
-     */
-    fun dependencies(vararg deps: Dependency) = apply { dependencies.addAll(deps) }
-    
-    /**
-     * 添加依赖集合
-     */
-    fun dependencies(deps: Collection<Dependency>) = apply { dependencies.addAll(deps) }
-    
-    /**
-     * 添加源文件
-     */
-    fun sourceFile(file: Path) = apply { sourceFiles.add(file) }
-    
-    /**
-     * 添加多个源文件
-     */
-    fun sourceFiles(vararg files: Path) = apply { sourceFiles.addAll(files) }
-    
-    /**
-     * 添加源文件集合
-     */
-    fun sourceFiles(files: Collection<Path>) = apply { sourceFiles.addAll(files) }
-    
-    /**
-     * 设置输出路径
-     */
-    fun outputPath(path: Path) = apply { this.outputPath = path }
-    
-    /**
-     * 构建编译上下文
-     */
-    fun build(): CompilationContext {
-        return DefaultCompilationContext(
-            projectRoot = requireNotNull(projectRoot) { "项目根目录不能为空" },
-            buildConfig = requireNotNull(buildConfig) { "构建配置不能为空" },
-            dependencies = dependencies.toList(),
-            sourceFiles = sourceFiles.toList(),
-            outputPath = requireNotNull(outputPath) { "输出路径不能为空" }
-        )
-    }
-}
-
-/**
- * 构建配置构建器
- */
-@CompilationDsl
-class BuildConfigBuilder {
-    private var target: CompilationTarget? = null
-    private var optimizationLevel: OptimizationLevel = OptimizationLevel.RELEASE
-    private var debugInfo: Boolean = false
-    private var parallel: Boolean = true
-    private var maxParallelSize: Int = Runtime.getRuntime().availableProcessors()
-    private var incremental: Boolean = true
-    private var verbose: Boolean = false
-    
-    fun target(target: CompilationTarget) = apply { this.target = target }
-    fun optimizationLevel(level: OptimizationLevel) = apply { this.optimizationLevel = level }
-    fun debugInfo(enabled: Boolean = true) = apply { this.debugInfo = enabled }
-    fun parallel(enabled: Boolean = true, maxSize: Int = Runtime.getRuntime().availableProcessors()) = apply {
-        this.parallel = enabled
-        this.maxParallelSize = maxSize
-    }
-    fun incremental(enabled: Boolean = true) = apply { this.incremental = enabled }
-    fun verbose(enabled: Boolean = true) = apply { this.verbose = enabled }
-    
-    fun build(): BuildConfig = BuildConfig(
-        target = requireNotNull(target) { "编译目标不能为空" },
-        optimizationLevel = optimizationLevel,
-        debugInfo = debugInfo,
-        parallel = parallel,
-        maxParallelSize = maxParallelSize,
-        incremental = incremental,
-        verbose = verbose
-    )
-}
-
-/**
- * 编译上下文 DSL 入口函数
- */
-@OptIn(ExperimentalContracts::class)
-inline fun buildCompilationContext(
-    crossinline block: CompilationContextBuilder.() -> Unit
-): CompilationContext {
-    contract {
-        callsInPlace(block, InvocationKind.EXACTLY_ONCE)
-    }
-    return CompilationContextBuilder().apply(block).build()
-}
 
 /**
  * 在编译上下文中执行操作的扩展函数

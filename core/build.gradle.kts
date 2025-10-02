@@ -28,6 +28,8 @@ dependencies {
     testImplementation(libs.kotestAssertionsCore)
     testImplementation(libs.kotestProperty)
     testImplementation(project(":config-toml"))
+    testImplementation(project(":config-official"))
+
 }
 
 application {

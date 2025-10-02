@@ -255,9 +255,9 @@ class CompilationManagerTest : BaseTest() {
             override val dependencies = dependencies
             override val sourceFiles = sourceFiles
             override val outputPath = outputPath
+            override val outputType = org.cangnova.kcjpm.config.OutputType.EXECUTABLE
             
             override fun validate(): Result<Unit> = Result.success(Unit)
-            override fun toCompilerArgs(): List<String> = emptyList()
         }
     }
 }

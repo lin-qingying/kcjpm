@@ -51,12 +51,19 @@ class CompilationCommandBuilderTest : BaseTest() {
                 debugInfo = true
             )
             
-            val command = commandBuilder.buildPackageCommand(
-                packageDir = packageDir,
-                outputPath = outputPath,
-                buildConfig = buildConfig,
-                moduleName = "mypackage"
+            val context = createCompilationContext(
+                projectRoot = packageDir.parent,
+                sourceFiles = emptyList(),
+                buildConfig = buildConfig
             )
+            
+            val command = with(context) {
+                commandBuilder.buildPackageCommand(
+                    packageDir = packageDir,
+                    outputPath = outputPath,
+                    moduleName = "mypackage"
+                )
+            }
             
             command shouldContain "cjc"
             command shouldContain "--package"
@@ -64,8 +71,8 @@ class CompilationCommandBuilderTest : BaseTest() {
             command shouldContain "--module-name"
             command shouldContain "mypackage"
             command shouldContain "--output-type=staticlib"
-            command shouldContain "-O0"  // DEBUG 模式
-            command shouldContain "-g"   // 调试信息
+            command shouldContain "-O0"
+            command shouldContain "-g"
         }
         
         test("构建可执行文件链接命令") {
@@ -84,12 +91,20 @@ class CompilationCommandBuilderTest : BaseTest() {
             val outputPath = testProject.root.resolve("main.exe")
             val buildConfig = BuildConfig(target = CompilationTarget.WINDOWS_X64)
             
-            val command = commandBuilder.buildExecutableCommand(
-                mainFile = mainFile,
-                libraryFiles = listOf(libFile),
-                outputPath = outputPath,
-                buildConfig = buildConfig
+            val context = createCompilationContext(
+                projectRoot = testProject.root,
+                sourceFiles = listOf(mainFile),
+                buildConfig = buildConfig,
+                outputPath = outputPath
             )
+            
+            val command = with(context) {
+                commandBuilder.buildExecutableCommand(
+                    mainFile = mainFile,
+                    libraryFiles = listOf(libFile),
+                    outputPath = outputPath
+                )
+            }
             
             command shouldContain "cjc"
             command shouldContain mainFile.toString()
@@ -299,9 +314,9 @@ class CompilationCommandBuilderTest : BaseTest() {
             override val dependencies = dependencies
             override val sourceFiles = sourceFiles
             override val outputPath = outputPath
+            override val outputType = org.cangnova.kcjpm.config.OutputType.EXECUTABLE
             
             override fun validate(): Result<Unit> = Result.success(Unit)
-            override fun toCompilerArgs(): List<String> = emptyList()
         }
     }
 }

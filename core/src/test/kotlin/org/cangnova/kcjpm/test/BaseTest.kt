@@ -134,7 +134,7 @@ data class TestProject(val root: Path) {
      * @return 配置文件路径
      */
     fun createConfig(content: String): Path {
-        val configFile = root.resolve("cjpm.toml")
+        val configFile = root.resolve("kcjpm.toml")
         configFile.writeText(content)
         return configFile
     }

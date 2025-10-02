@@ -1,21 +1,33 @@
 package org.cangnova.kcjpm.build
 
 import kotlinx.coroutines.*
-import java.io.File
 import java.nio.file.Path
-import java.nio.file.Paths
 import kotlin.io.path.exists
 import kotlin.io.path.isDirectory
 
-class DefaultCompilationPipeline : CompilationPipeline {
-    
-    override val stages: List<CompilationStage> = listOf(
+/**
+ * 默认编译流水线实现
+ * 
+ * 包含四个标准编译阶段：验证、依赖解析、包编译、链接
+ * 支持动态添加、插入和移除阶段
+ */
+class DefaultCompilationPipeline(
+    private val mutableStages: MutableList<CompilationStage> = mutableListOf(
         ValidationStage(),
         DependencyResolutionStage(), 
         PackageCompilationStage(),
         LinkingStage()
     )
+) : CompilationPipeline {
     
+    override val stages: List<CompilationStage>
+        get() = mutableStages.toList()
+    
+    /**
+     * 顺序执行所有编译阶段
+     * 
+     * 任何阶段失败时立即返回错误，成功则继续执行下一阶段
+     */
     override suspend fun compile(context: CompilationContext): Result<CompilationResult> = runCatching {
         var currentContext = context
         
@@ -37,33 +49,30 @@ class DefaultCompilationPipeline : CompilationPipeline {
     }
     
     override fun addStage(stage: CompilationStage): CompilationPipeline {
-        return DefaultCompilationPipeline().apply {
-            (this.stages as MutableList).add(stage)
-        }
+        return DefaultCompilationPipeline((mutableStages + stage).toMutableList())
     }
     
     override fun insertStageAfter(afterStage: String, stage: CompilationStage): Result<CompilationPipeline> {
-        val stages = this.stages.toMutableList()
-        val index = stages.indexOfFirst { it.name == afterStage }
+        val index = mutableStages.indexOfFirst { it.name == afterStage }
         
         return if (index >= 0) {
-            stages.add(index + 1, stage)
-            Result.success(DefaultCompilationPipeline().apply {
-                (this.stages as MutableList).addAll(stages)
-            })
+            val newStages = mutableStages.toMutableList()
+            newStages.add(index + 1, stage)
+            Result.success(DefaultCompilationPipeline(newStages))
         } else {
             Result.failure(IllegalArgumentException("找不到编译阶段: $afterStage"))
         }
     }
     
     override fun removeStage(stageName: String): CompilationPipeline {
-        val newStages = stages.filterNot { it.name == stageName }
-        return DefaultCompilationPipeline().apply {
-            (this.stages as MutableList).addAll(newStages)
-        }
+        val newStages = mutableStages.filterNot { it.name == stageName }.toMutableList()
+        return DefaultCompilationPipeline(newStages)
     }
 }
 
+/**
+ * 验证阶段：检查项目根目录、源文件和输出路径的有效性
+ */
 class ValidationStage : CompilationStage {
     override val name: String = "validation"
     
@@ -94,6 +103,9 @@ class ValidationStage : CompilationStage {
     }
 }
 
+/**
+ * 依赖解析阶段：解析和下载项目依赖（当前为占位实现）
+ */
 class DependencyResolutionStage : CompilationStage {
     override val name: String = "dependency-resolution"
     
@@ -102,89 +114,48 @@ class DependencyResolutionStage : CompilationStage {
     }
 }
 
+/**
+ * 包编译阶段：发现项目中的包并并行编译为 .cjo 库文件
+ */
 class PackageCompilationStage : CompilationStage {
     override val name: String = "package-compilation"
     
-    private val commandBuilder = CompilationCommandBuilder()
-    
     override suspend fun execute(context: CompilationContext): Result<CompilationContext> = runCatching {
-        val packages = discoverPackages(context)
+        // 发现项目中的所有包
+        val packages = with(context) { PackageDiscovery.discoverPackages() }
         
+        // 并行编译所有包
         val compiledLibraries = coroutineScope {
             packages.map { packageInfo ->
                 async {
-                    compilePackage(packageInfo, context.buildConfig)
+                    compilePackage(packageInfo, context)
                 }
-            }.awaitAll()
+            }.toList().awaitAll()
         }
         
-        context // 这里应该返回包含库文件信息的新上下文
+        context
     }
     
-    private fun discoverPackages(context: CompilationContext): List<PackageInfo> {
-        val packages = mutableListOf<PackageInfo>()
-        
-        val packageGroups = context.sourceFiles.groupBy { sourceFile ->
-            findPackageRoot(sourceFile, context.projectRoot)
-        }
-        
-        packageGroups.forEach { (packageRoot, sourceFiles) ->
-            if (packageRoot != null) {
-                val packageName = extractPackageName(sourceFiles.first())
-                packages.add(PackageInfo(packageName, packageRoot, sourceFiles))
-            }
-        }
-        
-        return packages
-    }
-    
-    private fun findPackageRoot(sourceFile: Path, projectRoot: Path): Path? {
-        var current = sourceFile.parent
-        while (current != null && current != projectRoot) {
-            if (isPackageRoot(current)) {
-                return current
-            }
-            current = current.parent
-        }
-        return sourceFile.parent
-    }
-    
-    private fun isPackageRoot(directory: Path): Boolean {
-        val cjFiles = directory.toFile().listFiles { _, name -> 
-            name.endsWith(".cj") 
-        } ?: return false
-        
-        if (cjFiles.isEmpty()) return false
-        
-        val firstPackage = extractPackageName(cjFiles.first().toPath())
-        
-        return cjFiles.all { file ->
-            extractPackageName(file.toPath()) == firstPackage
-        }
-    }
-    
-    private fun extractPackageName(sourceFile: Path): String {
-        return try {
-            val content = sourceFile.toFile().readText()
-            val packageLine = content.lines().find { it.trim().startsWith("package ") }
-            packageLine?.substringAfter("package ")?.trim() ?: "main"
-        } catch (e: Exception) {
-            "main"
-        }
-    }
-    
-    private suspend fun compilePackage(packageInfo: PackageInfo, buildConfig: BuildConfig): Path = withContext(Dispatchers.IO) {
+    /**
+     * 编译单个包为 .cjo 库文件
+     * 
+     * @param packageInfo 包信息（名称、根目录、源文件列表）
+     * @param context 编译上下文
+     * @return 编译生成的库文件路径
+     */
+    private suspend fun compilePackage(packageInfo: PackageInfo, context: CompilationContext): Path = withContext(Dispatchers.IO) {
         val outputDir = packageInfo.packageRoot.resolve("target")
         outputDir.toFile().mkdirs()
         
-        val libraryPath = outputDir.resolve("lib${packageInfo.name}.a")
+        val libraryPath = outputDir.resolve("${packageInfo.name}.cjo")
         
-        val command = commandBuilder.buildPackageCommand(
-            packageDir = packageInfo.packageRoot,
-            outputPath = libraryPath,
-            buildConfig = buildConfig,
-            moduleName = packageInfo.name
-        )
+        val command = with(context) {
+            CompilationCommandBuilder().buildPackageCommand(
+                packageDir = packageInfo.packageRoot,
+                outputPath = libraryPath,
+                moduleName = packageInfo.name
+            )
+        }
         
         val processBuilder = ProcessBuilder(command)
         processBuilder.directory(packageInfo.packageRoot.toFile())
@@ -201,23 +172,27 @@ class PackageCompilationStage : CompilationStage {
     }
 }
 
+/**
+ * 链接阶段：查找 main 函数并链接所有库文件生成可执行文件
+ */
 class LinkingStage : CompilationStage {
     override val name: String = "linking"
     
-    private val commandBuilder = CompilationCommandBuilder()
-    
     override suspend fun execute(context: CompilationContext): Result<CompilationContext> = runCatching {
+        // 查找包含 main() 函数的源文件
         val mainFile = findMainFile(context.sourceFiles)
             ?: throw IllegalArgumentException("找不到包含 main 函数的源文件")
         
-        val libraryFiles = collectLibraryFiles(context)
+        // 收集所有需要链接的库文件（.cjo, .so, .dylib, .dll）
+        val libraryFiles = with(context) { DependencyCollector.collectLibraryFiles() }
         
-        val command = commandBuilder.buildExecutableCommand(
-            mainFile = mainFile,
-            libraryFiles = libraryFiles,
-            outputPath = context.outputPath,
-            buildConfig = context.buildConfig
-        )
+        val command = with(context) {
+            CompilationCommandBuilder().buildExecutableCommand(
+                mainFile = mainFile,
+                libraryFiles = libraryFiles,
+                outputPath = outputPath
+            )
+        }
         
         val processBuilder = ProcessBuilder(command)
         processBuilder.directory(context.projectRoot.toFile())
@@ -233,64 +208,40 @@ class LinkingStage : CompilationStage {
         context
     }
     
+    /**
+     * 在源文件中查找包含 main() {} 函数的文件
+     * 
+     * @param sourceFiles 源文件列表
+     * @return 包含 main 函数的源文件，未找到则返回 null
+     */
     private fun findMainFile(sourceFiles: List<Path>): Path? {
         return sourceFiles.find { sourceFile ->
             try {
                 val content = sourceFile.toFile().readText()
+                content.contains(Regex("""main\s*\(\s*\)\s*\{"""))
             } catch (e: Exception) {
                 false
             }
         }
     }
-    
-    private fun collectLibraryFiles(context: CompilationContext): List<Path> {
-        val libraryFiles = mutableListOf<Path>()
-        
-        context.sourceFiles.forEach { sourceFile ->
-            val packageRoot = sourceFile.parent
-            val targetDir = packageRoot.resolve("target")
-            if (libFile.exists()) {
-                libraryFiles.add(libFile)
-            }
-        }
-        
-        context.dependencies.forEach { dependency ->
-            when (dependency) {
-                is Dependency.PathDependency -> {
-                    if (dependency.path.toString().endsWith(".a")) {
-                        libraryFiles.add(dependency.path)
-                    }
-                }
-                is Dependency.GitDependency -> {
-                    dependency.localPath?.let { localPath ->
-                        val libFile = localPath.resolve("lib${dependency.name}.a")
-                        if (libFile.exists()) {
-                            libraryFiles.add(libFile)
-                        }
-                    }
-                }
-                is Dependency.RegistryDependency -> {
-                    dependency.localPath?.let { localPath ->
-                        val libFile = localPath.resolve("lib${dependency.name}.a")
-                        if (libFile.exists()) {
-                            libraryFiles.add(libFile)
-                        }
-                    }
-                }
-            }
-        }
-        
-        return libraryFiles
-    }
 }
 
+/**
+ * 编译管理器：提供编译流水线的统一入口
+ */
 class CompilationManager {
     private val pipeline: CompilationPipeline = DefaultCompilationPipeline()
     
+    /**
+     * 执行完整的编译流程（验证 -> 依赖解析 -> 包编译 -> 链接）
+     */
     suspend fun compile(context: CompilationContext): Result<CompilationResult> {
         return pipeline.compile(context)
     }
     
+    /**
+     * 仅编译包，不执行链接（用于库项目）
+     */
     suspend fun compilePackagesOnly(context: CompilationContext): Result<List<Path>> = runCatching {
         val validationStage = ValidationStage()
         val packageStage = PackageCompilationStage()
@@ -299,10 +250,10 @@ class CompilationManager {
         currentContext = validationStage.execute(currentContext).getOrThrow()
         packageStage.execute(currentContext).getOrThrow()
         
+        emptyList()
     }
     
     fun withCustomPipeline(stages: List<CompilationStage>): CompilationManager {
-        return CompilationManager().apply {
-        }
+        return CompilationManager()
     }
 }

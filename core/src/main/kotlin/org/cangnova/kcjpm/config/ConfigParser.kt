@@ -5,6 +5,8 @@ import org.cangnova.kcjpm.build.CompilationTarget
 import java.nio.file.Path
 
 interface ConfigParser {
+    fun getSupportedFormat(): ConfigFormat
+    
     fun loadConfig(configPath: Path): Result<CjpmConfig>
     
     fun loadFromProjectRoot(projectRoot: Path): Result<CjpmConfig>
