@@ -7,21 +7,12 @@ import kotlin.io.path.extension
 import kotlin.io.path.listDirectoryEntries
 import kotlin.io.path.readText
 
-/**
- * 编译命令构建器：生成 cjc 编译器命令行参数
- * 
- * @property sdk 仓颉 SDK，如果未指定则使用默认 SDK（从 CANGJIE_HOME）
- */
-class CompilationCommandBuilder(
-    private val sdk: org.cangnova.kcjpm.sdk.CangjieSDK? = null
-) {
+class CompilationCommandBuilder {
     
-    /**
-     * 获取编译器命令
-     * 
-     * 如果指定了 SDK，使用 SDK 的编译器路径；否则使用默认的 "cjc"
-     */
-    private fun getCompilerCommand(): String = sdk?.getCompilerCommand() ?: "cjc"
+    private fun getCompilerCommand(): String {
+        val sdk = SdkManager.default().getOrNull()
+        return sdk?.getCompilerCommand() ?: "cjc"
+    }
 
     /**
      * 构建完整的编译命令（自动检测包模式或文件模式）
@@ -57,7 +48,7 @@ class CompilationCommandBuilder(
                 addAll(listOf("--experimental", "--incremental-compile"))
             }
 
-            addAll(listOf("--target", target.triple))
+            target?.let { addAll(listOf("--target", it.triple)) }
 
             if (verbose) add("--verbose")
         }
@@ -73,44 +64,60 @@ class CompilationCommandBuilder(
     context(ctx: CompilationContext)
     fun buildPackageCommands(): List<List<String>> {
         val packages = PackageDiscovery.discoverPackages().toList()
+        val outputDir = ctx.outputPath.resolve("libs")
+        val importPaths = listOf(ctx.outputPath)
         
         return packages.map { packageInfo ->
             buildPackageCommand(
                 packageDir = packageInfo.packageRoot,
-                outputPath = ctx.outputPath.resolve("${packageInfo.name}.cjo"),
-                moduleName = packageInfo.name
+                outputDir = outputDir,
+                outputFileName = "lib${packageInfo.name}.a",
+                importPaths = importPaths,
+                hasSubPackages = packageInfo.hasSubPackages
             )
         }
     }
 
     /**
-     * 构建包编译命令（生成 .cjo 静态库）
+     * 构建包编译命令（生成 .a 静态库）
      */
     context(ctx: CompilationContext)
     fun buildPackageCommand(
         packageDir: Path,
-        outputPath: Path,
-        moduleName: String? = null
+        outputDir: Path,
+        outputFileName: String,
+        importPaths: List<Path> = emptyList(),
+        hasSubPackages: Boolean = true
     ): List<String> = buildList {
         add(getCompilerCommand())
-        add("--package")
-        add(packageDir.toString())
-
-        moduleName?.let {
-            addAll(listOf("--module-name", it))
+        
+        importPaths.forEach { importPath ->
+            add("--import-path=${importPath}")
+        }
+        
+        if (ctx.buildConfig.parallel) {
+            add("-j${ctx.buildConfig.maxParallelSize}")
         }
 
-        addAll(listOf("--output-type=staticlib", "--output", outputPath.toString()))
+        if (!hasSubPackages) {
+            add("--no-sub-pkg")
+        }
+
+        add("-p")
+        add(packageDir.toString())
+
+
+        add("--output-dir=${outputDir}")
+        add("--output-type=staticlib")
+        add("-o=${outputFileName}")
+        
         addAll(ctx.buildConfig.optimizationLevel.toArgs())
 
         if (ctx.buildConfig.debugInfo) add("-g")
 
-        addAll(listOf("--target", ctx.buildConfig.target.triple))
+        ctx.buildConfig.target?.let { addAll(listOf("--target", it.triple)) }
     }
 
-    /**
-     * 构建可执行文件链接命令
-     */
     context(ctx: CompilationContext)
     fun buildExecutableCommand(
         mainFile: Path,
@@ -125,7 +132,7 @@ class CompilationCommandBuilder(
 
         if (ctx.buildConfig.debugInfo) add("-g")
 
-        addAll(listOf("--target", ctx.buildConfig.target.triple))
+        ctx.buildConfig.target?.let { addAll(listOf("--target", it.triple)) }
     }
 
     private fun findPackageDirectory(sourceFiles: List<Path>, projectRoot: Path): Path? =
@@ -278,6 +285,10 @@ data class PackageInfo(
 ) {
     val isMainPackage: Boolean get() = name == "main"
     val hasMainFunction: Boolean get() = sourceFiles.any { it.containsMainFunction() }
+    val hasSubPackages: Boolean get() = runCatching {
+        packageRoot.listDirectoryEntries()
+            .any { it.toFile().isDirectory && it.listDirectoryEntries("*.cj").isNotEmpty() }
+    }.getOrDefault(false)
 }
 
 private fun Path.containsMainFunction(): Boolean = runCatching {

@@ -60,7 +60,7 @@ object ConfigLoader {
     
     fun loadAndConvert(
         projectRoot: Path,
-        targetPlatform: CompilationTarget = CompilationTarget.current(),
+        targetPlatform: CompilationTarget ? = null,
         profileName: String = "release"
     ): Result<CompilationContext> {
         return ConfigFormatDetector.detectFromProjectRoot(projectRoot).mapCatching { (format, configPath) ->

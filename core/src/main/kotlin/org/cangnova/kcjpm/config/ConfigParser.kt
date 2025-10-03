@@ -13,7 +13,7 @@ interface ConfigParser {
     
     fun loadAndConvert(
         projectRoot: Path,
-        targetPlatform: CompilationTarget = CompilationTarget.current(),
+        targetPlatform: CompilationTarget? = null,
         profileName: String = "release"
     ): Result<CompilationContext>
     

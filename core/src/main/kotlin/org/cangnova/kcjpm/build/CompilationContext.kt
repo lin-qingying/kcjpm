@@ -24,7 +24,7 @@ annotation class CompilationDsl
  * 在编译上下文中执行操作的扩展函数
  */
 context(ctx: CompilationContext)
-inline fun <T> withCurrentTarget(block: (CompilationTarget) -> T): T {
+inline fun <T> withCurrentTarget(block: (CompilationTarget?) -> T): T {
     return block(ctx.buildConfig.target)
 }
 
@@ -61,7 +61,7 @@ val sourceFileCount: Int
  * @property verbose 是否输出详细日志，默认为 false
  */
 data class BuildConfig(
-    val target: CompilationTarget,
+    val target: CompilationTarget? = null,
     val optimizationLevel: OptimizationLevel = OptimizationLevel.RELEASE,
     val debugInfo: Boolean = false,
     val parallel: Boolean = true,

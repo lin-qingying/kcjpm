@@ -9,7 +9,7 @@ object ConfigToContextConverter {
     fun convert(
         config: CjpmConfig,
         projectRoot: Path,
-        targetPlatform: CompilationTarget = CompilationTarget.current(),
+        targetPlatform: CompilationTarget? = null,
         profileName: String = "release"
     ): Result<CompilationContext> = runCatching {
         val profile = config.profile[profileName] ?: getDefaultProfile(profileName)
@@ -39,7 +39,7 @@ object ConfigToContextConverter {
     
     private fun createBuildConfig(
         config: CjpmConfig,
-        targetPlatform: CompilationTarget,
+        targetPlatform: CompilationTarget?,
         profile: ProfileConfig
     ): org.cangnova.kcjpm.build.BuildConfig {
         val optimizationLevel = when (profile.optimizationLevel) {

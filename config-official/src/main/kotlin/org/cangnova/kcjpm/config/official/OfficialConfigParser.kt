@@ -28,7 +28,7 @@ class OfficialConfigParser : ConfigParser {
     
     override fun loadAndConvert(
         projectRoot: Path,
-        targetPlatform: CompilationTarget,
+        targetPlatform: CompilationTarget?,
         profileName: String
     ): Result<CompilationContext> {
         return loadFromProjectRoot(projectRoot).mapCatching { config ->
