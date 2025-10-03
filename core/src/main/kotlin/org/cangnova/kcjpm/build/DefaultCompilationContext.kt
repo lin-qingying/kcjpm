@@ -113,7 +113,7 @@ data class DefaultCompilationContext(
      */
     class Builder {
         private var projectRoot: Path? = null
-        private var buildConfig: BuildConfig = BuildConfig(CompilationTarget.current())
+        private var buildConfig: BuildConfig = BuildConfig( )
         private val dependencies = mutableListOf<Dependency>()
         private val sourceFiles = mutableListOf<Path>()
         private var outputPath: Path? = null

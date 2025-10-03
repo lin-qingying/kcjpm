@@ -60,16 +60,14 @@ class CompilationCommandBuilderTest : BaseTest() {
             val command = with(context) {
                 commandBuilder.buildPackageCommand(
                     packageDir = packageDir,
-                    outputPath = outputPath,
-                    moduleName = "mypackage"
+                    outputDir = outputPath.parent ?: outputPath,
+                    outputFileName = "libmypackage.a"
                 )
             }
             
             command shouldContain "cjc"
-            command shouldContain "--package"
+            command shouldContain "-p"
             command shouldContain packageDir.toString()
-            command shouldContain "--module-name"
-            command shouldContain "mypackage"
             command shouldContain "--output-type=staticlib"
             command shouldContain "-O0"
             command shouldContain "-g"

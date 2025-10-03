@@ -20,7 +20,7 @@ class CompilationManagerTest : BaseTest() {
             val context = createMockContext(projectRoot = nonExistentPath)
             
             runBlocking {
-                val result = validationStage.execute(context)
+                val result = with(context) { validationStage.execute() }
                 result.isFailure shouldBe true
                 result.exceptionOrNull()?.message shouldContain "项目根目录不存在"
             }
@@ -37,7 +37,7 @@ class CompilationManagerTest : BaseTest() {
             )
             
             runBlocking {
-                val result = validationStage.execute(context)
+                val result = with(context) { validationStage.execute() }
                 result.isFailure shouldBe true
                 result.exceptionOrNull()?.message shouldContain "源文件不存在"
             }
@@ -54,7 +54,7 @@ class CompilationManagerTest : BaseTest() {
             )
             
             runBlocking {
-                val result = validationStage.execute(context)
+                val result = with(context) { validationStage.execute() }
                 result.isFailure shouldBe true
                 result.exceptionOrNull()?.message shouldContain "不是有效的仓颉源文件"
             }
@@ -73,7 +73,7 @@ class CompilationManagerTest : BaseTest() {
             )
             
             runBlocking {
-                val result = validationStage.execute(context)
+                val result = with(context) { validationStage.execute() }
                 result.isSuccess shouldBe true
                 outputPath.parent.toFile().exists() shouldBe true
             }
@@ -122,7 +122,7 @@ class CompilationManagerTest : BaseTest() {
             )
             
             runBlocking {
-                val result = packageStage.execute(context)
+                val result = with(context) { packageStage.execute() }
                 result.isSuccess shouldBe true
             }
         }
@@ -151,7 +151,7 @@ class CompilationManagerTest : BaseTest() {
             )
             
             runBlocking {
-                val result = linkingStage.execute(context)
+                val result = with(context) { linkingStage.execute() }
                 // 由于没有真实的 cjc 编译器，这里会失败，但我们可以验证逻辑
                 result.isFailure shouldBe true
                 result.exceptionOrNull()?.message shouldContain "链接失败"
@@ -172,7 +172,8 @@ class CompilationManagerTest : BaseTest() {
             val pipeline = DefaultCompilationPipeline()
             val customStage = object : CompilationStage {
                 override val name = "custom-stage"
-                override suspend fun execute(context: CompilationContext): Result<CompilationContext> {
+                context(context: CompilationContext)
+                override suspend fun execute(): Result<CompilationContext> {
                     return Result.success(context)
                 }
             }
@@ -186,7 +187,8 @@ class CompilationManagerTest : BaseTest() {
             val pipeline = DefaultCompilationPipeline()
             val customStage = object : CompilationStage {
                 override val name = "custom-stage"
-                override suspend fun execute(context: CompilationContext): Result<CompilationContext> {
+                context(context: CompilationContext)
+                override suspend fun execute(): Result<CompilationContext> {
                     return Result.success(context)
                 }
             }
@@ -203,7 +205,8 @@ class CompilationManagerTest : BaseTest() {
             val pipeline = DefaultCompilationPipeline()
             val customStage = object : CompilationStage {
                 override val name = "custom-stage"
-                override suspend fun execute(context: CompilationContext): Result<CompilationContext> {
+                context(context: CompilationContext)
+                override suspend fun execute(): Result<CompilationContext> {
                     return Result.success(context)
                 }
             }
@@ -235,7 +238,7 @@ class CompilationManagerTest : BaseTest() {
             )
             
             runBlocking {
-                val result = compilationManager.compile(context)
+                val result = with(context) { compilationManager.compile() }
                 // 由于没有真实的编译器，会在某个阶段失败
                 result.isFailure shouldBe true
             }
