@@ -1,9 +1,12 @@
 package org.cangnova.kcjpm.build
 
+import io.github.oshai.kotlinlogging.KotlinLogging
 import kotlinx.coroutines.*
 import java.nio.file.Path
 import kotlin.io.path.exists
 import kotlin.io.path.isDirectory
+
+private val logger = KotlinLogging.logger {}
 
 /**
  * 默认编译流水线实现
@@ -148,7 +151,9 @@ class PackageCompilationStage : CompilationStage {
 
 
 
-            val libraryFileName = "lib${packageInfo.name}.a"
+            val isMainPackage = with(context) { packageInfo.isMainPackage() }
+            val libraryFileName = getPackageOutputFileName(packageInfo.name, context.outputType, isMainPackage)
+            val outputType = getPackageOutputType(context.outputType, isMainPackage)
             val libraryPath = outputDir.resolve(libraryFileName)
 
             val importPaths = listOf(context.outputPath)
@@ -158,6 +163,7 @@ class PackageCompilationStage : CompilationStage {
                     packageDir = packageInfo.packageRoot,
                     outputDir = outputDir,
                     outputFileName = libraryFileName,
+                    outputType = outputType,
                     importPaths = importPaths,
                     hasSubPackages = packageInfo.hasSubPackages
                 )
@@ -194,12 +200,12 @@ class PackageCompilationStage : CompilationStage {
                         process.inputStream.bufferedReader().use { reader ->
                             reader.lines().forEach { line ->
                                 stdoutLines.add(line)
-                                println("[STDOUT] $line")
+                                logger.debug { "[STDOUT] $line" }
 
                                 stdoutParser.parseLine(line, false)?.let { event ->
                                     when (event) {
                                         is CjcOutputEvent.CompilationProgress -> {
-                                            println(event.message)
+                                            logger.debug { event.message }
                                         }
                                         is CjcOutputEvent.CompilationError -> {
                                             synchronized(errors) { errors.add(event.error) }
@@ -213,8 +219,7 @@ class PackageCompilationStage : CompilationStage {
                             }
                         }
                     } catch (e: Exception) {
-                        println("读取 stdout 失败: ${e.message}")
-                        e.printStackTrace()
+                        logger.error(e) { "[SYSTEM_ERROR] 读取 stdout 失败" }
                     }
                 }
 
@@ -224,20 +229,20 @@ class PackageCompilationStage : CompilationStage {
                         process.errorStream.bufferedReader().use { reader ->
                             reader.lines().forEach { line ->
                                 stderrLines.add(line)
-                                println("[STDERR] $line")
+                                logger.debug { "[STDERR] $line" }
 
                                 stderrParser.parseLine(line, true)?.let { event ->
                                     when (event) {
                                         is CjcOutputEvent.CompilationError -> {
                                             synchronized(errors) { errors.add(event.error) }
-                                            println("错误: ${event.error.message}")
+                                            logger.debug { "[COMPILER_ERROR] ${event.error.file}:${event.error.line}:${event.error.column}: ${event.error.message}" }
                                         }
                                         is CjcOutputEvent.CompilationWarning -> {
                                             synchronized(warnings) { warnings.add(event.warning) }
-                                            println("警告: ${event.warning.message}")
+                                            logger.debug { "[COMPILER_WARNING] ${event.warning.file}:${event.warning.line}:${event.warning.column}: ${event.warning.message}" }
                                         }
                                         is CjcOutputEvent.CompilationProgress -> {
-                                            println(event.message)
+                                            logger.debug { event.message }
                                         }
                                         else -> {}
                                     }
@@ -245,8 +250,7 @@ class PackageCompilationStage : CompilationStage {
                             }
                         }
                     } catch (e: Exception) {
-                        println("读取 stderr 失败: ${e.message}")
-                        e.printStackTrace()
+                        logger.error(e) { "[SYSTEM_ERROR] 读取 stderr 失败" }
                     }
                 }
 
@@ -338,7 +342,7 @@ class LinkingStage : CompilationStage {
                         lines.forEach { line ->
                             stdoutParser.parseLine(line, false)?.let { event ->
                                 when (event) {
-                                    is CjcOutputEvent.CompilationProgress -> println(event.message)
+                                    is CjcOutputEvent.CompilationProgress -> logger.debug { event.message }
                                     is CjcOutputEvent.CompilationError -> synchronized(errors) { errors.add(event.error) }
                                     is CjcOutputEvent.CompilationWarning -> synchronized(warnings) { warnings.add(event.warning) }
                                     else -> {}
@@ -359,11 +363,11 @@ class LinkingStage : CompilationStage {
                                 when (event) {
                                     is CjcOutputEvent.CompilationError -> {
                                         synchronized(errors) { errors.add(event.error) }
-                                        println("错误: ${event.error.message}")
+                                        logger.debug { "[COMPILER_ERROR] ${event.error.file}:${event.error.line}:${event.error.column}: ${event.error.message}" }
                                     }
                                     is CjcOutputEvent.CompilationWarning -> {
                                         synchronized(warnings) { warnings.add(event.warning) }
-                                        println("警告: ${event.warning.message}")
+                                        logger.debug { "[COMPILER_WARNING] ${event.warning.file}:${event.warning.line}:${event.warning.column}: ${event.warning.message}" }
                                     }
                                     else -> {}
                                 }
@@ -480,3 +484,21 @@ class CompilationManager {
         return CompilationManager()
     }
 }
+
+private fun getPackageOutputType(outputType: org.cangnova.kcjpm.config.OutputType, isMainPackage: Boolean): String =
+    when {
+        outputType == org.cangnova.kcjpm.config.OutputType.EXECUTABLE && isMainPackage -> "exe"
+        outputType == org.cangnova.kcjpm.config.OutputType.DYNAMIC_LIBRARY -> "dylib"
+        else -> "staticlib"
+    }
+
+private fun getPackageOutputFileName(
+    name: String, 
+    outputType: org.cangnova.kcjpm.config.OutputType, 
+    isMainPackage: Boolean
+): String =
+    when {
+        outputType == org.cangnova.kcjpm.config.OutputType.EXECUTABLE && isMainPackage -> name
+        outputType == org.cangnova.kcjpm.config.OutputType.DYNAMIC_LIBRARY -> "lib$name.b.dll"
+        else -> "lib$name.a"
+    }

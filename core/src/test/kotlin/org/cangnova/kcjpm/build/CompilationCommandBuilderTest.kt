@@ -260,6 +260,50 @@ class CompilationCommandBuilderTest : BaseTest() {
             
             command shouldContain "--verbose"
         }
+
+        test("动态库输出文件名使用.b.dll扩展名") {
+            val packageDir = createTempDir().resolve("mypackage")
+            packageDir.toFile().mkdirs()
+
+            val context = createCompilationContext(
+                projectRoot = packageDir.parent,
+                sourceFiles = emptyList(),
+                outputType = org.cangnova.kcjpm.config.OutputType.DYNAMIC_LIBRARY
+            )
+
+            val command = with(context) {
+                commandBuilder.buildPackageCommand(
+                    packageDir = packageDir,
+                    outputDir = packageDir.parent,
+                    outputFileName = "libmypackage.b.dll"
+                )
+            }
+
+            command shouldContain "-o=libmypackage.b.dll"
+            command shouldContain "--output-type=dylib"
+        }
+
+        test("静态库输出文件名使用.a扩展名") {
+            val packageDir = createTempDir().resolve("mypackage")
+            packageDir.toFile().mkdirs()
+
+            val context = createCompilationContext(
+                projectRoot = packageDir.parent,
+                sourceFiles = emptyList(),
+                outputType = org.cangnova.kcjpm.config.OutputType.STATIC_LIBRARY
+            )
+
+            val command = with(context) {
+                commandBuilder.buildPackageCommand(
+                    packageDir = packageDir,
+                    outputDir = packageDir.parent,
+                    outputFileName = "libmypackage.a"
+                )
+            }
+
+            command shouldContain "-o=libmypackage.a"
+            command shouldContain "--output-type=staticlib"
+        }
         
         test("查找包目录") {
             val testProject = createTestProject()
@@ -304,7 +348,8 @@ class CompilationCommandBuilderTest : BaseTest() {
         sourceFiles: List<java.nio.file.Path>,
         dependencies: List<Dependency> = emptyList(),
         buildConfig: BuildConfig = BuildConfig(target = CompilationTarget.current()),
-        outputPath: java.nio.file.Path = projectRoot.resolve("output")
+        outputPath: java.nio.file.Path = projectRoot.resolve("output"),
+        outputType: org.cangnova.kcjpm.config.OutputType = org.cangnova.kcjpm.config.OutputType.EXECUTABLE
     ): CompilationContext {
         return object : CompilationContext {
             override val projectRoot = projectRoot
@@ -312,7 +357,7 @@ class CompilationCommandBuilderTest : BaseTest() {
             override val dependencies = dependencies
             override val sourceFiles = sourceFiles
             override val outputPath = outputPath
-            override val outputType = org.cangnova.kcjpm.config.OutputType.EXECUTABLE
+            override val outputType = outputType
             
             override fun validate(): Result<Unit> = Result.success(Unit)
         }

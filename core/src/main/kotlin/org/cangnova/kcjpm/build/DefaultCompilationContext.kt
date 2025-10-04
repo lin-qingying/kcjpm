@@ -31,7 +31,8 @@ data class DefaultCompilationContext(
     override val dependencies: List<Dependency>,
     override val sourceFiles: List<Path>,
     override val outputPath: Path,
-    override val outputType: OutputType = OutputType.EXECUTABLE
+    override val outputType: OutputType = OutputType.EXECUTABLE,
+    override val sourceDir: String = "src"
 ) : CompilationContext {
     
     /**

@@ -15,6 +15,7 @@ object ConfigToContextConverter {
         val profile = config.profile[profileName] ?: getDefaultProfile(profileName)
         val buildConfig = createBuildConfig(config, targetPlatform, profile)
         val dependencies = parseDependencies(config.dependencies, projectRoot, config.registry)
+        val sourceDir = config.build?.sourceDir ?: "src"
         val sourceFiles = discoverSourceFiles(projectRoot, config.build)
         val outputPath = determineOutputPath(projectRoot, config.build, profileName)
         
@@ -24,7 +25,8 @@ object ConfigToContextConverter {
             dependencies = dependencies,
             sourceFiles = sourceFiles,
             outputPath = outputPath,
-            outputType = config.`package`.outputType
+            outputType = config.`package`.outputType,
+            sourceDir = sourceDir
         )
     }
     

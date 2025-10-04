@@ -68,10 +68,15 @@ class CompilationCommandBuilder {
         val importPaths = listOf(ctx.outputPath)
         
         return packages.map { packageInfo ->
+            val isMainPackage = with(ctx) { packageInfo.isMainPackage() }
+            val outputFileName = getPackageOutputFileName(packageInfo.name, ctx.outputType, isMainPackage)
+            val outputType = getPackageOutputType(ctx.outputType, isMainPackage)
+            
             buildPackageCommand(
                 packageDir = packageInfo.packageRoot,
                 outputDir = outputDir,
-                outputFileName = "lib${packageInfo.name}.a",
+                outputFileName = outputFileName,
+                outputType = outputType,
                 importPaths = importPaths,
                 hasSubPackages = packageInfo.hasSubPackages
             )
@@ -86,6 +91,7 @@ class CompilationCommandBuilder {
         packageDir: Path,
         outputDir: Path,
         outputFileName: String,
+        outputType: String = "staticlib",
         importPaths: List<Path> = emptyList(),
         hasSubPackages: Boolean = true
     ): List<String> = buildList {
@@ -108,7 +114,7 @@ class CompilationCommandBuilder {
 
 
         add("--output-dir=${outputDir}")
-        add("--output-type=staticlib")
+        add("--output-type=${outputType}")
         add("-o=${outputFileName}")
         
         addAll(ctx.buildConfig.optimizationLevel.toArgs())
@@ -166,6 +172,38 @@ class CompilationCommandBuilder {
             org.cangnova.kcjpm.config.OutputType.LIBRARY,
             org.cangnova.kcjpm.config.OutputType.STATIC_LIBRARY -> "staticlib"
             org.cangnova.kcjpm.config.OutputType.DYNAMIC_LIBRARY -> "dylib"
+        }
+
+    private fun getLibraryOutputType(outputType: org.cangnova.kcjpm.config.OutputType): String =
+        when (outputType) {
+            org.cangnova.kcjpm.config.OutputType.LIBRARY,
+            org.cangnova.kcjpm.config.OutputType.STATIC_LIBRARY -> "staticlib"
+            org.cangnova.kcjpm.config.OutputType.DYNAMIC_LIBRARY -> "dylib"
+            org.cangnova.kcjpm.config.OutputType.EXECUTABLE -> "staticlib"
+        }
+
+    private fun getLibraryFileName(name: String, outputType: org.cangnova.kcjpm.config.OutputType): String =
+        when (outputType) {
+            org.cangnova.kcjpm.config.OutputType.DYNAMIC_LIBRARY -> "lib$name.b.dll"
+            else -> "lib$name.a"
+        }
+
+    private fun getPackageOutputType(outputType: org.cangnova.kcjpm.config.OutputType, isMainPackage: Boolean): String =
+        when {
+            outputType == org.cangnova.kcjpm.config.OutputType.EXECUTABLE && isMainPackage -> "exe"
+            outputType == org.cangnova.kcjpm.config.OutputType.DYNAMIC_LIBRARY -> "dylib"
+            else -> "staticlib"
+        }
+
+    private fun getPackageOutputFileName(
+        name: String, 
+        outputType: org.cangnova.kcjpm.config.OutputType, 
+        isMainPackage: Boolean
+    ): String =
+        when {
+            outputType == org.cangnova.kcjpm.config.OutputType.EXECUTABLE && isMainPackage -> name
+            outputType == org.cangnova.kcjpm.config.OutputType.DYNAMIC_LIBRARY -> "lib$name.b.dll"
+            else -> "lib$name.a"
         }
 }
 
@@ -283,12 +321,17 @@ data class PackageInfo(
     val packageRoot: Path,
     val sourceFiles: List<Path>
 ) {
-    val isMainPackage: Boolean get() = name == "main"
     val hasMainFunction: Boolean get() = sourceFiles.any { it.containsMainFunction() }
     val hasSubPackages: Boolean get() = runCatching {
         packageRoot.listDirectoryEntries()
             .any { it.toFile().isDirectory && it.listDirectoryEntries("*.cj").isNotEmpty() }
     }.getOrDefault(false)
+
+    context(ctx: CompilationContext)
+    fun isMainPackage(): Boolean {
+        val sourceDir = ctx.projectRoot.resolve(ctx.sourceDir)
+        return packageRoot.normalize() == sourceDir.normalize()
+    }
 }
 
 private fun Path.containsMainFunction(): Boolean = runCatching {

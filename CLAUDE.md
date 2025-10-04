@@ -6,6 +6,42 @@
 
 KCJPM (Kotlin-based Cangjie Package Manager) 是一个使用 Kotlin 编写的仓颉语言构建与包管理工具。项目采用模块化架构设计，优先考虑扩展性，使得功能模块可以灵活组合和扩展。
 
+## 架构分层原则
+
+### Core 模块职责边界
+
+**`:core` 模块是编译核心**，遵循以下设计原则：
+
+1. **纯业务逻辑层**
+   - 只关注编译流程、依赖管理、配置解析等核心业务
+   - 不包含任何控制台输出（如 `println`）
+   - 不处理控制台输入输出
+   - 不包含 UI 相关逻辑
+
+2. **适配层设计**
+   - **CLI 适配层**（后期开发）：处理命令行参数解析、控制台输出格式化、用户交互
+   - **IDE 适配层**（后期开发）：处理 IDE 集成、图形界面交互、进度通知
+
+3. **通信机制**
+   - Core 通过回调、事件或 Result 类型返回编译状态
+   - 适配层负责将状态转换为具体的输出形式（CLI 文本、IDE 通知等）
+   - 所有日志、进度、错误信息通过结构化数据传递，不直接打印
+
+**示例**：
+```kotlin
+// ✅ 正确：Core 返回结构化结果
+fun compile(): Result<CompilationResult> {
+    return runCatching {
+        CompilationResult.Success(outputPath = "...")
+    }
+}
+
+// ❌ 错误：Core 直接打印输出
+fun compile() {
+    println("Compiling...")  // 不应该在 Core 中出现
+}
+```
+
 ## 构建命令
 
 这是一个使用 Gradle Wrapper 的 Kotlin JVM 项目，**要求 Java 21**。

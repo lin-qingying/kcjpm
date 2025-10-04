@@ -23,6 +23,11 @@ dependencies {
     // Kotlin 协程支持（用于编译流水线）
     implementation(libs.kotlinxCoroutines)
     
+    // 日志依赖
+    implementation(libs.kotlinLogging)
+    implementation(libs.slf4jApi)
+    runtimeOnly(libs.logbackClassic)
+    
     // 测试依赖
     testImplementation(libs.kotestRunnerJunit5)
     testImplementation(libs.kotestAssertionsCore)

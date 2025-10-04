@@ -13,6 +13,7 @@ interface CompilationContext {
     val sourceFiles: List<Path>
     val outputPath: Path
     val outputType: OutputType
+    val sourceDir: String get() = "src"
     
     fun validate(): Result<Unit>
 }
