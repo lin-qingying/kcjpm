@@ -124,23 +124,74 @@ class PackageCompilationStage : CompilationStage {
     override val name: String = "package-compilation"
 
     private val reportBuilder = CompilationReportBuilder()
+    private var cacheManager: IncrementalCacheManager? = null
+    private val changeDetector = FileChangeDetector()
 
     context(context: CompilationContext)
     override suspend fun execute(): Result<CompilationContext> = runCatching {
         val packages = PackageDiscovery.discoverPackages()
 
+        if (context.buildConfig.incremental) {
+            val cacheDir = context.outputPath.resolve(".kcjpm-cache")
+            cacheManager = IncrementalCacheManager(cacheDir)
+        }
+
+        var cache = cacheManager?.loadCache() ?: CompilationCache()
+        val buildConfigHash = computeBuildConfigHash(context.buildConfig)
+
         val compiledLibraries = coroutineScope {
             packages.map { packageInfo ->
                 async {
-                    compilePackage(packageInfo, context)
+                    val result = compilePackageWithCache(packageInfo, context, cache, buildConfigHash)
+                    synchronized(this@PackageCompilationStage) {
+                        cache = cacheManager?.updatePackageCache(
+                            cache,
+                            packageInfo,
+                            result,
+                            buildConfigHash
+                        ) ?: cache
+                    }
+                    result
                 }
             }.toList().awaitAll()
         }
+
+        cacheManager?.saveCache(cache)
 
         context
     }
 
     fun getReport(): CompilationReport = reportBuilder.build()
+
+    private suspend fun compilePackageWithCache(
+        packageInfo: PackageInfo,
+        context: CompilationContext,
+        cache: CompilationCache,
+        buildConfigHash: String
+    ): Path = withContext(Dispatchers.IO) {
+        val cachedEntry = cache.packages[packageInfo.name]
+        val changeResult = changeDetector.detectChanges(packageInfo, cachedEntry, buildConfigHash)
+
+        if (changeResult is ChangeDetectionResult.NoChanges) {
+            val cachedOutputPath = Path.of(cachedEntry!!.outputPath)
+            logger.debug { "包 ${packageInfo.name} 无变更，跳过编译" }
+            return@withContext cachedOutputPath
+        }
+
+        when (changeResult) {
+            is ChangeDetectionResult.NoCacheFound -> logger.debug { "包 ${packageInfo.name}: 首次编译" }
+            is ChangeDetectionResult.BuildConfigChanged -> logger.debug { "包 ${packageInfo.name}: 构建配置变更" }
+            is ChangeDetectionResult.OutputMissing -> logger.debug { "包 ${packageInfo.name}: 输出文件缺失" }
+            is ChangeDetectionResult.FilesChanged -> {
+                if (changeResult.added.isNotEmpty()) logger.debug { "包 ${packageInfo.name}: 新增文件 ${changeResult.added.size} 个" }
+                if (changeResult.removed.isNotEmpty()) logger.debug { "包 ${packageInfo.name}: 删除文件 ${changeResult.removed.size} 个" }
+                if (changeResult.modified.isNotEmpty()) logger.debug { "包 ${packageInfo.name}: 修改文件 ${changeResult.modified.size} 个" }
+            }
+            else -> {}
+        }
+
+        compilePackage(packageInfo, context)
+    }
 
     private suspend fun compilePackage(packageInfo: PackageInfo, context: CompilationContext): Path =
         withContext(Dispatchers.IO) {
@@ -168,18 +219,7 @@ class PackageCompilationStage : CompilationStage {
                     hasSubPackages = packageInfo.hasSubPackages
                 )
             }
-            val command1 = listOf(
-                "C:\\Users\\lin17\\sdk\\cangjie-sdk-windows-x64-1.0.1\\cangjie\\bin\\cjc.exe",
-                "-j10",
-                "--import-path=D:\\code\\cangjie\\bson\\target\\release",
-"--output-dir=D:\\code\\cangjie\\bson\\target\\release\\libs",
-                "-p",
-                "D:\\code\\cangjie\\bson\\src\\a",
-                "--no-sub-pkg",
-                "--output-type=staticlib",
-                "-o=libbson.a.a",
-                "-O2"
-            )
+
             val processBuilder = ProcessBuilder(command)
             processBuilder.directory(packageInfo.packageRoot.toFile())
 
