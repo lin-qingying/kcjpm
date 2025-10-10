@@ -1,0 +1,8 @@
+<component name="ArtifactManager">
+  <artifact type="jar" name="config-official-jvm">
+    <output-path>$PROJECT_DIR$/config-official/build/libs</output-path>
+    <root id="archive" name="config-official-jvm.jar">
+      <element id="module-output" name="kcjpm.config-official.jvmMain" />
+    </root>
+  </artifact>
+</component>

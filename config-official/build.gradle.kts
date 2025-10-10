@@ -1,15 +1,21 @@
 plugins {
-    id("buildsrc.convention.kotlin-jvm")
-    
+    id("buildsrc.convention.kotlin-multiplatform")
     alias(libs.plugins.kotlinPluginSerialization)
 }
 
-dependencies {
-    implementation(project(":core"))
-    
-    implementation(libs.tomlkt)
-    
-    testImplementation(libs.kotestRunnerJunit5)
-    testImplementation(libs.kotestAssertionsCore)
-    testImplementation(libs.kotestProperty)
+kotlin {
+    sourceSets {
+        val commonMain by getting {
+            dependencies {
+                implementation(project(":core"))
+                implementation(libs.tomlkt)
+            }
+        }
+        
+        val commonTest by getting {
+            dependencies {
+                implementation(kotlin("test"))
+            }
+        }
+    }
 }
