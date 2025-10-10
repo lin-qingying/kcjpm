@@ -18,6 +18,7 @@ dependencies {
     
     // Kotlin 序列化和 TOML 解析（用于数据模型）
     implementation(libs.kotlinxSerialization)
+    implementation(libs.kotlinxDatetime)
     implementation(libs.tomlkt)
     
     // Kotlin 协程支持（用于编译流水线）

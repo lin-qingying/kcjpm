@@ -9,7 +9,7 @@ import net.peanuuutz.tomlkt.*
 
 @Serializable
 data class CjpmConfig(
-    val `package`: PackageInfo,
+    val `package`: PackageInfo? = null,
     val registry: RegistryConfig? = null,
     @Serializable(with = DependencyMapSerializer::class)
     val dependencies: Map<String, DependencyConfig> = emptyMap(),

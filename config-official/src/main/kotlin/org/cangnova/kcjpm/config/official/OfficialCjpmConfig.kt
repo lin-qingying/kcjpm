@@ -5,7 +5,8 @@ import kotlinx.serialization.SerialName
 
 @Serializable
 data class OfficialCjpmConfig(
-    val `package`: OfficialPackageInfo,
+    val `package`: OfficialPackageInfo? = null,
+    val workspace: OfficialWorkspaceConfig? = null,
     val dependencies: Map<String, OfficialDependencyConfig> = emptyMap()
 )
 
@@ -38,4 +39,11 @@ data class OfficialDependencyConfig(
     val tag: String? = null,
     val branch: String? = null,
     val commit: String? = null
+)
+
+@Serializable
+data class OfficialWorkspaceConfig(
+    val members: List<String> = emptyList(),
+    @SerialName("default-members")
+    val defaultMembers: List<String> = emptyList()
 )

@@ -41,9 +41,23 @@ class OfficialConfigParser : ConfigParser {
     
     private fun convertToCustomConfig(official: OfficialCjpmConfig): CjpmConfig {
         return CjpmConfig(
-            `package` = convertPackageInfo(official.`package`),
+            `package` = official.`package`?.let { convertPackageInfo(it) }
+                ?: PackageInfo(
+                    name = "",
+                    version = "",
+                    cjcVersion = "",
+                    outputType = OutputType.LIBRARY
+                ),
             dependencies = convertDependencies(official.dependencies),
-            build = convertBuildConfig(official.`package`)
+            build = official.`package`?.let { convertBuildConfig(it) },
+            workspace = official.workspace?.let { convertWorkspaceConfig(it) }
+        )
+    }
+    
+    private fun convertWorkspaceConfig(official: OfficialWorkspaceConfig): WorkspaceConfig {
+        return WorkspaceConfig(
+            members = official.members,
+            defaultMembers = official.defaultMembers
         )
     }
     

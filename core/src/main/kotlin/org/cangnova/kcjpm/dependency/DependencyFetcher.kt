@@ -54,25 +54,11 @@ interface DependencyFetcher {
  * local-lib = { path = "../local-lib" }
  * ```
  */
-class PathDependencyFetcher : DependencyFetcher {
+class PathDependencyFetcher(
+    private val workspaceRoot: Path? = null
+) : DependencyFetcher {
     override fun canHandle(type: DependencyType): Boolean = type == DependencyType.PATH
     
-    /**
-     * 获取本地路径依赖。
-     *
-     * 执行步骤：
-     * 1. 从配置中读取路径
-     * 2. 解析为绝对路径（相对于项目根目录）
-     * 3. 验证路径存在性
-     * 4. 创建 PathDependency 对象
-     *
-     * @param name 依赖名称
-     * @param config 依赖配置，必须包含 path 字段
-     * @param projectRoot 项目根目录，用于解析相对路径
-     * @param registry 此拉取器不使用此参数
-     * @return 包含 PathDependency 的 Result
-     * @throws IllegalArgumentException 如果 path 字段缺失或路径不存在
-     */
     override fun fetch(
         name: String,
         config: DependencyConfig,
@@ -86,11 +72,25 @@ class PathDependencyFetcher : DependencyFetcher {
             throw IllegalArgumentException("Dependency path does not exist: $resolvedPath")
         }
         
+        val version = config.version ?: resolveVersionFromWorkspace(resolvedPath)
+        
         Dependency.PathDependency(
             name = name,
-            version = config.version,
+            version = version,
             path = resolvedPath
         )
+    }
+    
+    private fun resolveVersionFromWorkspace(dependencyPath: Path): String? {
+        if (workspaceRoot == null) return null
+        
+        return try {
+            val configLoader = org.cangnova.kcjpm.config.ConfigLoader
+            val config = configLoader.loadFromProjectRoot(dependencyPath).getOrNull()
+            config?.`package`?.version
+        } catch (e: Exception) {
+            null
+        }
     }
 }
 

@@ -64,16 +64,21 @@ fun compile() {
 
 ### 多模块结构
 
-项目包含三个主要模块：
+项目包含四个主要模块：
 
 - **`:core`**: 核心模块，包含主应用逻辑、数据模型和接口定义
   - 依赖管理系统（接口和实现）
   - 编译上下文和构建配置
   - 配置解析接口（不含具体实现）
+  - **工作空间管理系统**（新增）
   
 - **`:config-toml`**: TOML 配置解析实现模块
   - 实现 `ConfigParser` 接口
   - 包含 TOML 特定的解析逻辑
+  - 依赖于 `:core` 模块
+
+- **`:config-official`**: 官方配置格式支持模块
+  - 实现官方配置格式解析
   - 依赖于 `:core` 模块
   
 - **`:utils`**: 共享工具模块
@@ -263,3 +268,164 @@ class MyTest : BaseTest() {
 2. 添加依赖到 `:core` 模块
 3. 实现 `ConfigParser` 接口
 4. 在应用启动时通过 `ConfigLoader.setParser()` 注册
+
+## 工作空间系统
+
+### 概念
+
+**工作空间 (Workspace)** 是包管理器层面的概念，允许在同一仓库中管理多个相关的仓颉项目。
+
+### 工作空间类型
+
+1. **纯工作空间 (Virtual Workspace)**
+   - 根目录只包含工作空间配置，自身不是一个包
+   - 仅用于组织成员项目
+   ```toml
+   [workspace]
+   members = ["pkg-a", "pkg-b"]
+   ```
+
+2. **混合工作空间 (Mixed Workspace)**
+   - 根目录既是工作空间，也是一个可编译的包
+   - 通常用于主应用 + 子库的场景
+   ```toml
+   [package]
+   name = "my-app"
+   version = "1.0.0"
+   cjc-version = "1.0.0"
+   output-type = "executable"
+   
+   [workspace]
+   members = [".", "libs/core", "libs/utils"]
+   default-members = ["."]
+   
+   [dependencies]
+   core = { path = "libs/core" }
+   ```
+
+### 核心组件
+
+#### 1. WorkspaceManager
+工作空间管理器，提供工作空间加载和构建的统一入口。
+
+```kotlin
+interface WorkspaceManager {
+    suspend fun loadWorkspace(rootPath: Path): Result<Workspace>
+    suspend fun buildWorkspace(workspace: Workspace, members: List<String>?): Result<WorkspaceResult>
+    suspend fun buildMember(workspace: Workspace, memberName: String): Result<MemberBuildResult>
+    fun isWorkspaceRoot(path: Path): Boolean
+}
+```
+
+**主要功能**：
+- 加载工作空间配置和成员列表
+- 支持通配符模式 (`packages/*`)
+- 检测是否为工作空间根目录
+- 构建整个工作空间或指定成员
+
+#### 2. WorkspaceDependencyGraph
+工作空间依赖图，负责分析成员间的依赖关系。
+
+```kotlin
+class WorkspaceDependencyGraph(workspace: Workspace) {
+    fun topologicalSort(): Result<List<WorkspaceMember>>
+    fun detectCycles(): List<List<String>>
+    fun getDependents(memberName: String): List<String>
+    fun getDependencies(memberName: String): List<String>
+    fun getIndependentMembers(): List<WorkspaceMember>
+}
+```
+
+**主要功能**：
+- 拓扑排序（确定编译顺序）
+- 循环依赖检测
+- 查询成员的依赖和依赖者
+- 识别独立成员（无依赖）
+
+#### 3. WorkspaceCompilationCoordinator
+工作空间编译协调器，负责并行或串行编译成员。
+
+```kotlin
+class WorkspaceCompilationCoordinator(workspace: Workspace) {
+    suspend fun buildAll(parallel: Boolean, targetPlatform: CompilationTarget?): Result<Map<String, MemberBuildResult>>
+    suspend fun buildMember(memberName: String, targetPlatform: CompilationTarget?): Result<MemberBuildResult>
+    suspend fun buildDefaultMembers(parallel: Boolean, targetPlatform: CompilationTarget?): Result<Map<String, MemberBuildResult>>
+}
+```
+
+**主要功能**：
+- 按依赖顺序编译所有成员
+- 支持并行编译（无依赖成员）
+- 支持串行编译（保证依赖顺序）
+- 编译默认成员列表
+
+### 工作空间构建流程
+
+```
+1. 加载工作空间
+   └─ 解析根 cjpm.toml
+   └─ 读取 workspace.members
+   └─ 加载每个成员的 cjpm.toml
+   
+2. 依赖分析
+   └─ 构建依赖图
+   └─ 拓扑排序确定编译顺序
+   └─ 检测循环依赖
+   
+3. 并行/串行编译
+   └─ 无依赖关系的成员可并行编译
+   └─ 有依赖关系的成员按拓扑顺序编译
+   └─ 使用 Kotlin Coroutines 实现并发
+   
+4. 结果聚合
+   └─ 收集每个成员的编译结果
+   └─ 返回 WorkspaceResult
+```
+
+### 工作空间成员依赖
+
+工作空间成员通过 `path` 依赖相互引用：
+
+```toml
+# libs/utils/cjpm.toml
+[package]
+name = "utils"
+version = "0.1.0"
+
+[dependencies]
+core = { path = "../core" }  # 引用同工作空间的成员
+```
+
+`PathDependencyFetcher` 已扩展支持工作空间成员依赖：
+- 自动从成员的 `cjpm.toml` 读取版本号
+- 在工作空间模式下优先使用构建产物
+
+### 配置文件示例
+
+```toml
+# 根目录 cjpm.toml（混合工作空间）
+[package]
+name = "my-app"
+version = "1.0.0"
+cjc-version = "1.0.0"
+output-type = "executable"
+
+[workspace]
+members = [".", "libs/*"]      # 支持通配符
+default-members = ["."]        # 默认只构建根包
+
+[dependencies]
+core = { path = "libs/core" }
+utils = { path = "libs/utils" }
+```
+
+### 测试
+
+工作空间相关测试位于：
+- `WorkspaceManagerTest`: 测试工作空间加载、成员管理
+- `WorkspaceDependencyGraphTest`: 测试依赖图、拓扑排序、循环检测
+
+运行测试：
+```bash
+./gradlew :core:test --tests "org.cangnova.kcjpm.workspace.*"
+```

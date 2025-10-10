@@ -158,12 +158,13 @@ data class TestProject(val root: Path) {
  * @property path 依赖目录路径
  */
 fun Path.writeConfig(config: org.cangnova.kcjpm.config.CjpmConfig) {
+    val packageInfo = config.`package` ?: throw IllegalArgumentException("Config must have package info")
     val content = buildString {
         appendLine("[package]")
-        appendLine("name = \"${config.`package`.name}\"")
-        appendLine("version = \"${config.`package`.version}\"")
-        appendLine("cjc-version = \"${config.`package`.cjcVersion}\"")
-        appendLine("output-type = \"${config.`package`.outputType.name.lowercase().replace('_', '-')}\"")
+        appendLine("name = \"${packageInfo.name}\"")
+        appendLine("version = \"${packageInfo.version}\"")
+        appendLine("cjc-version = \"${packageInfo.cjcVersion}\"")
+        appendLine("output-type = \"${packageInfo.outputType.name.lowercase().replace('_', '-')}\"")
         if (config.dependencies.isNotEmpty()) {
             appendLine()
             appendLine("[dependencies]")
@@ -174,6 +175,31 @@ fun Path.writeConfig(config: org.cangnova.kcjpm.config.CjpmConfig) {
                     dep.git != null && dep.branch != null -> appendLine("$name = { git = \"${dep.git}\", branch = \"${dep.branch}\" }")
                     dep.version != null -> appendLine("$name = { version = \"${dep.version}\" }")
                 }
+            }
+        }
+    }
+    this.resolve("cjpm.toml").writeText(content)
+}
+
+fun Path.writeConfig(
+    name: String,
+    version: String = "0.1.0",
+    cjcVersion: String = "1.0.0",
+    outputType: String = "executable",
+    dependencies: Map<String, String> = emptyMap()
+) {
+    val content = buildString {
+        appendLine("[package]")
+        appendLine("name = \"$name\"")
+        appendLine("version = \"$version\"")
+        appendLine("cjc-version = \"$cjcVersion\"")
+        appendLine("output-type = \"$outputType\"")
+        if (dependencies.isNotEmpty()) {
+            appendLine()
+            appendLine("[dependencies]")
+            dependencies.forEach { (depName, depPath) ->
+                val escapedPath = depPath.replace("\\", "\\\\")
+                appendLine("$depName = { path = \"$escapedPath\" }")
             }
         }
     }

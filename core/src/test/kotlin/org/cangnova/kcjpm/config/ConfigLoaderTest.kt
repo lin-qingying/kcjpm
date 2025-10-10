@@ -20,8 +20,8 @@ class ConfigLoaderTest : BaseTest() {
 
             result.isSuccess shouldBe true
             val config = result.getOrThrow()
-            config.`package`.name shouldBe "test-pkg"
-            config.`package`.version shouldBe "1.0.0"
+            config.`package`?.name shouldBe "test-pkg"
+            config.`package`?.version shouldBe "1.0.0"
         }
 
         test("当配置文件未找到时应该失败") {
@@ -131,11 +131,11 @@ class ConfigLoaderTest : BaseTest() {
 
             result.isSuccess shouldBe true
             val config = result.getOrThrow()
-            config.`package`.name shouldBe "bson"
-            config.`package`.version shouldBe "1.0.0"
-            config.`package`.cjcVersion shouldBe "0.53.13"
-            config.`package`.outputType shouldBe org.cangnova.kcjpm.config.OutputType.EXECUTABLE
-            config.`package`.description shouldBe "nothing here111"
+            config.`package`?.name shouldBe "bson"
+            config.`package`?.version shouldBe "1.0.0"
+            config.`package`?.cjcVersion shouldBe "0.53.13"
+            config.`package`?.outputType shouldBe org.cangnova.kcjpm.config.OutputType.EXECUTABLE
+            config.`package`?.description shouldBe "nothing here111"
         }
 
         test("应该完成从配置到编译命令的完整流程") {

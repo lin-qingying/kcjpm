@@ -14,6 +14,8 @@ interface CompilationContext {
     val outputPath: Path
     val outputType: OutputType
     val sourceDir: String get() = "src"
+    val linkLibraries: List<String> get() = emptyList()
+    val includeDirs: List<Path> get() = emptyList()
     
     fun validate(): Result<Unit>
 }

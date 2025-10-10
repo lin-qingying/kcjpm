@@ -32,7 +32,9 @@ data class DefaultCompilationContext(
     override val sourceFiles: List<Path>,
     override val outputPath: Path,
     override val outputType: OutputType = OutputType.EXECUTABLE,
-    override val sourceDir: String = "src"
+    override val sourceDir: String = "src",
+    override val linkLibraries: List<String> = emptyList(),
+    override val includeDirs: List<Path> = emptyList()
 ) : CompilationContext {
     
     /**
@@ -97,6 +99,19 @@ data class DefaultCompilationContext(
         }
     }
     
+    fun toBuilder(): Builder {
+        return Builder().apply {
+            projectRoot(this@DefaultCompilationContext.projectRoot)
+            buildConfig(this@DefaultCompilationContext.buildConfig)
+            addDependencies(this@DefaultCompilationContext.dependencies)
+            addSourceFiles(this@DefaultCompilationContext.sourceFiles)
+            outputPath(this@DefaultCompilationContext.outputPath)
+            outputType(this@DefaultCompilationContext.outputType)
+            this@DefaultCompilationContext.linkLibraries.forEach { addLinkLibrary(it) }
+            this@DefaultCompilationContext.includeDirs.forEach { addIncludeDir(it) }
+        }
+    }
+
 
     companion object {
         /**
@@ -119,6 +134,8 @@ data class DefaultCompilationContext(
         private val sourceFiles = mutableListOf<Path>()
         private var outputPath: Path? = null
         private var outputType: OutputType = OutputType.EXECUTABLE
+        private val linkLibraries = mutableListOf<String>()
+        private val includeDirs = mutableListOf<Path>()
         
         /**
          * 设置项目根目录。
@@ -178,6 +195,10 @@ data class DefaultCompilationContext(
         
         fun outputType(type: OutputType) = apply { this.outputType = type }
         
+        fun addLinkLibrary(library: String) = apply { linkLibraries.add(library) }
+        
+        fun addIncludeDir(dir: Path) = apply { includeDirs.add(dir) }
+        
         /**
          * 构建 [DefaultCompilationContext] 实例。
          *
@@ -194,7 +215,9 @@ data class DefaultCompilationContext(
                 dependencies = dependencies.toList(),
                 sourceFiles = sourceFiles.toList(),
                 outputPath = output,
-                outputType = outputType
+                outputType = outputType,
+                linkLibraries = linkLibraries.toList(),
+                includeDirs = includeDirs.toList()
             )
         }
     }

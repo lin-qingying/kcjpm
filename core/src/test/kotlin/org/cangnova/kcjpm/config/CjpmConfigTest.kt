@@ -22,10 +22,10 @@ class CjpmConfigTest : BaseTest() {
         
         val config = toml.decodeFromString(CjpmConfig.serializer(), content)
         
-        config.`package`.name shouldBe "test-package"
-        config.`package`.version shouldBe "0.1.0"
-        config.`package`.cjcVersion shouldBe "1.0.0"
-        config.`package`.outputType shouldBe OutputType.EXECUTABLE
+        config.`package`?.name shouldBe "test-package"
+        config.`package`?.version shouldBe "0.1.0"
+        config.`package`?.cjcVersion shouldBe "1.0.0"
+        config.`package`?.outputType shouldBe OutputType.EXECUTABLE
     }
     
     test("应该解析带有仓库的配置") {

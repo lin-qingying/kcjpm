@@ -3,6 +3,7 @@ package org.cangnova.kcjpm.dependency
 import org.cangnova.kcjpm.build.Dependency
 import org.cangnova.kcjpm.config.CjpmConfig
 import org.cangnova.kcjpm.config.ConfigLoader
+import org.cangnova.kcjpm.lock.*
 import java.nio.file.Path
 import kotlin.io.path.exists
 

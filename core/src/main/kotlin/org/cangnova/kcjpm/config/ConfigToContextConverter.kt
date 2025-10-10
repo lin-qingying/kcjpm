@@ -12,6 +12,9 @@ object ConfigToContextConverter {
         targetPlatform: CompilationTarget? = null,
         profileName: String = "release"
     ): Result<CompilationContext> = runCatching {
+        val packageInfo = config.`package`
+            ?: throw IllegalArgumentException("Configuration must have [package] section for compilation")
+        
         val profile = config.profile[profileName] ?: getDefaultProfile(profileName)
         val buildConfig = createBuildConfig(config, targetPlatform, profile)
         val dependencies = parseDependencies(config.dependencies, projectRoot, config.registry)
@@ -25,7 +28,7 @@ object ConfigToContextConverter {
             dependencies = dependencies,
             sourceFiles = sourceFiles,
             outputPath = outputPath,
-            outputType = config.`package`.outputType,
+            outputType = packageInfo.outputType,
             sourceDir = sourceDir
         )
     }
