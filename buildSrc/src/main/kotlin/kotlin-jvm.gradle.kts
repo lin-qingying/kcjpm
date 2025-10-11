@@ -14,6 +14,16 @@ kotlin {
     jvmToolchain(21)
 }
 
+tasks.withType<JavaCompile>().configureEach {
+    options.encoding = "UTF-8"
+}
+
+tasks.withType<org.jetbrains.kotlin.gradle.tasks.KotlinCompile>().configureEach {
+    compilerOptions {
+        jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_21)
+    }
+}
+
 tasks.withType<Test>().configureEach {
     // 配置所有测试 Gradle 任务以使用 JUnitPlatform。
     useJUnitPlatform()

@@ -20,7 +20,7 @@ data class Workspace(
         members.find { it.name == name }
     
     fun getMember(name: String): WorkspaceMember =
-        findMember(name) ?: throw IllegalArgumentException("工作空间成员不存在: $name")
+        findMember(name) ?: throw IllegalArgumentException("Workspace member does not exist: $name")
 }
 
 data class WorkspaceMember(

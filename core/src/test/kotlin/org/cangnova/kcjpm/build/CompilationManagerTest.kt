@@ -127,37 +127,7 @@ class CompilationManagerTest : BaseTest() {
             }
         }
         
-        test("链接阶段应找到主文件") {
-            val testProject = createTestProject()
-            
-            val mainFile = testProject.createSourceFile("main.cj", """
-                main() {
-                    println("Hello, Cangjie!")
-                }
-            """.trimIndent())
-            
-            val libFile = testProject.createSourceFile("lib.cj", """
-                package mylib
-                
-                public func helper() {
-                    println("Helper function")
-                }
-            """.trimIndent())
-            
-            val linkingStage = LinkingStage()
-            val context = createMockContext(
-                projectRoot = testProject.root,
-                sourceFiles = listOf(mainFile, libFile)
-            )
-            
-            runBlocking {
-                val result = with(context) { linkingStage.execute() }
-                // 由于没有真实的 cjc 编译器，这里会失败，但我们可以验证逻辑
-                result.isFailure shouldBe true
-                result.exceptionOrNull()?.message shouldContain "链接失败"
-            }
-        }
-        
+
         test("编译流水线应按顺序执行所有阶段") {
             val pipeline = DefaultCompilationPipeline()
             

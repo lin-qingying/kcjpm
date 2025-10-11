@@ -157,7 +157,7 @@ object SdkManager {
         
         val compilerPath = Path.of(output.lines().first())
         val sdkHome = compilerPath.parent?.parent 
-            ?: throw IllegalStateException("无法确定 SDK 根目录")
+            ?: throw IllegalStateException("Cannot determine SDK root directory")
         
         val sdk = CangjieSDK(sdkHome, compilerPath)
         val version = sdk.detectVersion()

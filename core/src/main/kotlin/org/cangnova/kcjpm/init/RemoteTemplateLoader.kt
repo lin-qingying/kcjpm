@@ -33,7 +33,7 @@ class RemoteTemplateLoader {
         val exitCode = process.waitFor()
         if (exitCode != 0) {
             val output = process.inputStream.bufferedReader().readText()
-            throw RuntimeException("Git clone 失败: $output")
+            throw RuntimeException("Git clone failed: $output")
         }
         
         customLoader.loadFromPath(targetDir).getOrThrow()

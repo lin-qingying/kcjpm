@@ -72,7 +72,7 @@ class WorkspaceDependencyGraph(
         
         if (result.size != workspace.members.size) {
             val cycles = detectCycles()
-            throw IllegalStateException("工作空间存在循环依赖: ${cycles.joinToString(" -> ")}")
+            throw IllegalStateException("Circular dependency detected in workspace: ${cycles.joinToString(" -> ")}")
         }
         
         result

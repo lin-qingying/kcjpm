@@ -35,7 +35,7 @@ object ConfigLoader {
         
         val parser = getParser(detectedFormat)
             ?: return Result.failure(
-                IllegalStateException("未注册 ${detectedFormat.name} 格式的解析器")
+                IllegalStateException("No parser registered for format: ${detectedFormat.name}")
             )
         
         return parser.loadConfig(configPath)
@@ -44,7 +44,7 @@ object ConfigLoader {
     fun loadFromProjectRoot(projectRoot: Path): Result<CjpmConfig> {
         return ConfigFormatDetector.detectFromProjectRoot(projectRoot).mapCatching { (format, configPath) ->
             val parser = getParser(format)
-                ?: throw IllegalStateException("未注册 ${format.name} 格式的解析器")
+                ?: throw IllegalStateException("No parser registered for format: ${format.name}")
             
             parser.loadConfig(configPath).getOrThrow()
         }
@@ -65,7 +65,7 @@ object ConfigLoader {
     ): Result<CompilationContext> {
         return ConfigFormatDetector.detectFromProjectRoot(projectRoot).mapCatching { (format, configPath) ->
             val parser = getParser(format)
-                ?: throw IllegalStateException("未注册 ${format.name} 格式的解析器")
+                ?: throw IllegalStateException("No parser registered for format: ${format.name}")
             
             parser.loadAndConvert(projectRoot, targetPlatform, profileName).getOrThrow()
         }

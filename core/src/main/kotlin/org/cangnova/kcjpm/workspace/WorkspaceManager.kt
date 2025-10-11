@@ -25,13 +25,13 @@ class DefaultWorkspaceManager : WorkspaceManager {
     
     override suspend fun loadWorkspace(rootPath: Path): Result<Workspace> = runCatching {
         require(rootPath.exists() && rootPath.isDirectory()) {
-            "工作空间根目录不存在或不是目录: $rootPath"
+            "Workspace root directory does not exist or is not a directory: $rootPath"
         }
         
         val rootConfig = ConfigLoader.loadFromProjectRoot(rootPath).getOrThrow()
         
         val workspaceConfig = rootConfig.workspace
-            ?: throw IllegalArgumentException("指定路径不是工作空间根目录: $rootPath")
+            ?: throw IllegalArgumentException("Specified path is not a workspace root: $rootPath")
         
         val members = loadMembers(rootPath, workspaceConfig, rootConfig)
         

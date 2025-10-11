@@ -2,7 +2,7 @@ package org.cangnova.kcjpm.dependency
 
 import java.io.File
 import java.net.HttpURLConnection
-import java.net.URL
+import java.net.URI
 import java.nio.file.Files
 import java.nio.file.Path
 import java.nio.file.StandardCopyOption
@@ -56,7 +56,7 @@ class DefaultDependencyHttpClient : DependencyHttpClient {
      * @throws RuntimeException 如果 HTTP 请求失败或解压失败
      */
     override fun download(url: String, targetDir: Path): Result<Unit> = runCatching {
-        val connection = URL(url).openConnection() as HttpURLConnection
+        val connection = URI(url).toURL().openConnection() as HttpURLConnection
         connection.requestMethod = "GET"
         connection.connectTimeout = 30_000
         connection.readTimeout = 60_000

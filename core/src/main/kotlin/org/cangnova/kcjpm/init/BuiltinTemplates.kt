@@ -25,6 +25,8 @@ authors = [{{#each authors}}"{{this}}"{{#unless @last}}, {{/unless}}{{/each}}]{{
 description = "{{description}}"{{/if}}{{#if license}}
 license = "{{license}}"{{/if}}
 
+[dependencies]
+
 [build]
 source-dir = "src"
 output-dir = "target"
@@ -45,6 +47,7 @@ lto = false
             TemplateFile(
                 path = "src/main.cj",
                 content = """
+package {{project_name}}
 main(): Int64 {
     println("Hello, {{project_name}}!")
     return 0
@@ -113,6 +116,8 @@ output-type = "library"{{#if authors}}
 authors = [{{#each authors}}"{{this}}"{{#unless @last}}, {{/unless}}{{/each}}]{{/if}}{{#if description}}
 description = "{{description}}"{{/if}}{{#if license}}
 license = "{{license}}"{{/if}}
+
+[dependencies]
 
 [build]
 source-dir = "src"

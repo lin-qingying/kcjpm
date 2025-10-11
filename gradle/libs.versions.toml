@@ -7,17 +7,20 @@ kotlin = "2.2.10"
 kotlinxDatetime = "0.6.2"
 kotlinxSerializationJSON = "1.8.1"
 kotlinxCoroutines = "1.10.2"
+kotlinxCli = "0.3.6"
 tomlkt = "0.4.0"
 kotest = "5.9.1"
 kotlinLogging = "7.0.3"
 slf4j = "2.0.16"
 logback = "1.5.12"
+jna = "5.14.0"
 
 [libraries]
 kotlinGradlePlugin = { module = "org.jetbrains.kotlin:kotlin-gradle-plugin", version.ref = "kotlin" }
 kotlinxDatetime = { module = "org.jetbrains.kotlinx:kotlinx-datetime", version.ref = "kotlinxDatetime" }
 kotlinxSerialization = { module = "org.jetbrains.kotlinx:kotlinx-serialization-json", version.ref = "kotlinxSerializationJSON" }
 kotlinxCoroutines = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-core", version.ref = "kotlinxCoroutines" }
+kotlinxCli = { module = "org.jetbrains.kotlinx:kotlinx-cli", version.ref = "kotlinxCli" }
 tomlkt = { module = "net.peanuuutz.tomlkt:tomlkt", version.ref = "tomlkt" }
 kotestRunnerJunit5 = { module = "io.kotest:kotest-runner-junit5", version.ref = "kotest" }
 kotestAssertionsCore = { module = "io.kotest:kotest-assertions-core", version.ref = "kotest" }
@@ -25,6 +28,8 @@ kotestProperty = { module = "io.kotest:kotest-property", version.ref = "kotest" 
 kotlinLogging = { module = "io.github.oshai:kotlin-logging-jvm", version.ref = "kotlinLogging" }
 slf4jApi = { module = "org.slf4j:slf4j-api", version.ref = "slf4j" }
 logbackClassic = { module = "ch.qos.logback:logback-classic", version.ref = "logback" }
+jna = { module = "net.java.dev.jna:jna", version.ref = "jna" }
+jnaPlatform = { module = "net.java.dev.jna:jna-platform", version.ref = "jna" }
 
 # Libraries can be bundled together for easier import
 [bundles]

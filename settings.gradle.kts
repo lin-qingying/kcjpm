@@ -23,5 +23,6 @@ include(":core")
 include(":utils")
 include(":config-toml")
 include(":config-official")
+include(":cli")
 
 rootProject.name = "kcjpm"

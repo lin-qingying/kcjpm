@@ -12,7 +12,7 @@ class DefaultProjectInitializer : ProjectInitializer {
         options: InitOptions
     ): Result<InitResult> = runCatching {
         require(!targetPath.exists() || targetPath.listDirectoryEntries().isEmpty()) {
-            "目标路径已存在且不为空: $targetPath"
+            "Target path already exists and is not empty: $targetPath"
         }
         
         Files.createDirectories(targetPath)
@@ -47,7 +47,7 @@ class DefaultProjectInitializer : ProjectInitializer {
     
     override suspend fun getTemplate(name: String): Result<ProjectTemplate> = runCatching {
         BuiltinTemplates.getTemplate(name)
-            ?: throw IllegalArgumentException("模板不存在: $name")
+            ?: throw IllegalArgumentException("Template does not exist: $name")
     }
     
     private fun buildVariables(options: InitOptions): Map<String, Any> {

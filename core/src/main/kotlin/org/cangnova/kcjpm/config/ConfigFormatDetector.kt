@@ -14,7 +14,7 @@ object ConfigFormatDetector {
     
     fun detectFormat(configPath: Path): Result<ConfigFormat> = runCatching {
         if (!configPath.exists()) {
-            throw IllegalArgumentException("配置文件不存在: $configPath")
+            throw IllegalArgumentException("Config file not found: $configPath")
         }
         
         when (configPath.name) {
@@ -54,7 +54,7 @@ object ConfigFormatDetector {
         return when {
             hasOfficialMarkers -> ConfigFormat.OFFICIAL
             hasCustomMarkers -> ConfigFormat.CUSTOM
-            else -> throw IllegalArgumentException("无法识别的配置文件格式")
+            else -> throw IllegalArgumentException("Unable to recognize config file format")
         }
     }
     
@@ -65,7 +65,7 @@ object ConfigFormatDetector {
         when {
             customPath.exists() -> ConfigFormat.CUSTOM to customPath
             officialPath.exists() -> ConfigFormat.OFFICIAL to officialPath
-            else -> throw IllegalArgumentException("项目根目录未找到配置文件: cjpm.toml 或 kcjpm.toml")
+            else -> throw IllegalArgumentException("Config file not found in project root: cjpm.toml or kcjpm.toml")
         }
     }
 }

@@ -34,7 +34,8 @@ data class DefaultCompilationContext(
     override val outputType: OutputType = OutputType.EXECUTABLE,
     override val sourceDir: String = "src",
     override val linkLibraries: List<String> = emptyList(),
-    override val includeDirs: List<Path> = emptyList()
+    override val includeDirs: List<Path> = emptyList(),
+    override val eventBus: CompilationEventBus? = null
 ) : CompilationContext {
     
     /**
@@ -136,6 +137,7 @@ data class DefaultCompilationContext(
         private var outputType: OutputType = OutputType.EXECUTABLE
         private val linkLibraries = mutableListOf<String>()
         private val includeDirs = mutableListOf<Path>()
+        private var eventBus: CompilationEventBus? = null
         
         /**
          * 设置项目根目录。
@@ -199,6 +201,8 @@ data class DefaultCompilationContext(
         
         fun addIncludeDir(dir: Path) = apply { includeDirs.add(dir) }
         
+        fun eventBus(bus: CompilationEventBus?) = apply { this.eventBus = bus }
+        
         /**
          * 构建 [DefaultCompilationContext] 实例。
          *
@@ -217,7 +221,8 @@ data class DefaultCompilationContext(
                 outputPath = output,
                 outputType = outputType,
                 linkLibraries = linkLibraries.toList(),
-                includeDirs = includeDirs.toList()
+                includeDirs = includeDirs.toList(),
+                eventBus = eventBus
             )
         }
     }

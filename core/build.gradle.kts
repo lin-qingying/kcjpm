@@ -5,9 +5,7 @@ plugins {
     // 共享代码位于 `buildSrc/src/main/kotlin/kotlin-jvm.gradle.kts`。
     id("buildsrc.convention.kotlin-jvm")
 
-    // 应用 Application 插件以添加对构建可执行 JVM 应用程序的支持。
-    application
-    
+  
     // Kotlin 序列化插件
     alias(libs.plugins.kotlinPluginSerialization)
 }
@@ -36,12 +34,6 @@ dependencies {
     testImplementation(project(":config-toml"))
     testImplementation(project(":config-official"))
 
-}
-
-application {
-    // 定义应用程序主类的完全限定名
-    // （注意 Kotlin 将 `App.kt` 编译为 FQN 为 `com.example.app.AppKt` 的类。）
-    mainClass = "org.cangnova.app.AppKt"
 }
 // 配置所有 Kotlin 编译任务启用上下文参数
 tasks.withType<KotlinCompile>().configureEach {

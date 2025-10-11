@@ -69,7 +69,7 @@ class CompilationCommandBuilder {
         
         return packages.map { packageInfo ->
             val isMainPackage = with(ctx) { packageInfo.isMainPackage() }
-            val outputFileName = getPackageOutputFileName(packageInfo.name, ctx.outputType, isMainPackage)
+            val outputFileName = getPackageOutputFileName(packageInfo.name, ctx.outputType, isMainPackage, ctx.buildConfig.target)
             val outputType = getPackageOutputType(ctx.outputType, isMainPackage)
             
             buildPackageCommand(
@@ -126,14 +126,29 @@ class CompilationCommandBuilder {
 
     context(ctx: CompilationContext)
     fun buildExecutableCommand(
-        mainFile: Path,
-        libraryFiles: List<Path>,
-        outputPath: Path
+        packageDir: Path,
+        outputDir: Path,
+        outputFileName: String,
+        importPaths: List<Path> = emptyList(),
+        libraryFiles: List<Path> = emptyList()
     ): List<String> = buildList {
         add(getCompilerCommand())
-        add(mainFile.toString())
+        
+        importPaths.forEach { importPath ->
+            add("--import-path=${importPath}")
+        }
+        
+        if (ctx.buildConfig.parallel) {
+            add("-j${ctx.buildConfig.maxParallelSize}")
+        }
+        
+        add("--package")
+        add(packageDir.toString())
+        
         addAll(libraryFiles.map(Path::toString))
-        addAll(listOf("--output-type=exe", "--output", outputPath.toString()))
+        
+        val finalOutputFileName = addExecutableSuffix(outputFileName, ctx.buildConfig.target ?: CompilationTarget.current())
+        addAll(listOf("--output-type=exe", "--output", outputDir.resolve(finalOutputFileName).toString()))
         addAll(ctx.buildConfig.optimizationLevel.toArgs())
 
         if (ctx.buildConfig.debugInfo) add("-g")
@@ -198,10 +213,12 @@ class CompilationCommandBuilder {
     private fun getPackageOutputFileName(
         name: String, 
         outputType: org.cangnova.kcjpm.config.OutputType, 
-        isMainPackage: Boolean
+        isMainPackage: Boolean,
+        target: CompilationTarget?
     ): String =
         when {
-            outputType == org.cangnova.kcjpm.config.OutputType.EXECUTABLE && isMainPackage -> name
+            outputType == org.cangnova.kcjpm.config.OutputType.EXECUTABLE && isMainPackage -> 
+                addExecutableSuffix(name, target ?: CompilationTarget.current())
             outputType == org.cangnova.kcjpm.config.OutputType.DYNAMIC_LIBRARY -> "lib$name.b.dll"
             else -> "lib$name.a"
         }
@@ -424,4 +441,13 @@ object DependencyCollector {
 
             projectLibs + dependencyLibs
         }
+}
+
+private fun addExecutableSuffix(fileName: String, target: CompilationTarget): String {
+    if (fileName.endsWith(".exe")) return fileName
+    
+    return when (target) {
+        CompilationTarget.WINDOWS_X64 -> "$fileName.exe"
+        else -> fileName
+    }
 }

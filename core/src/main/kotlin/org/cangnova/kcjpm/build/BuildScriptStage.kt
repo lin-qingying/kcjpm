@@ -71,7 +71,7 @@ class BuildScriptStage(
 private fun CompilationContext.withBuildScriptResult(result: BuildScriptResult): CompilationContext {
     val builder = when (this) {
         is DefaultCompilationContext -> this.toBuilder()
-        else -> throw UnsupportedOperationException("不支持的 CompilationContext 实现")
+        else -> throw UnsupportedOperationException("Unsupported CompilationContext implementation")
     }
     
     result.linkLibraries.forEach { lib ->

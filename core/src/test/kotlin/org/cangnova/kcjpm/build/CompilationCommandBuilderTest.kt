@@ -86,27 +86,30 @@ class CompilationCommandBuilderTest : BaseTest() {
             val libFile = testProject.root.resolve("libmylib.a")
             libFile.toFile().createNewFile()
             
-            val outputPath = testProject.root.resolve("main.exe")
+            val outputDir = testProject.root.resolve("output")
             val buildConfig = BuildConfig(target = CompilationTarget.WINDOWS_X64)
             
             val context = createCompilationContext(
                 projectRoot = testProject.root,
                 sourceFiles = listOf(mainFile),
                 buildConfig = buildConfig,
-                outputPath = outputPath
+                outputPath = outputDir
             )
             
             val command = with(context) {
                 commandBuilder.buildExecutableCommand(
-                    mainFile = mainFile,
-                    libraryFiles = listOf(libFile),
-                    outputPath = outputPath
+                    packageDir = mainFile.parent,
+                    outputDir = outputDir,
+                    outputFileName = "main",
+                    libraryFiles = listOf(libFile)
                 )
             }
             
             command shouldContain "cjc"
-            command shouldContain mainFile.toString()
+            command shouldContain "--package"
+            command shouldContain mainFile.parent.toString()
             command shouldContain libFile.toString()
+            command shouldContain "main.exe"
             command shouldContain "--output-type=exe"
             command shouldContain "--target"
             command shouldContain "x86_64-w64-mingw32"

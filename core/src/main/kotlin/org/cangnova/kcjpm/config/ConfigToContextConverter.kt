@@ -10,7 +10,8 @@ object ConfigToContextConverter {
         config: CjpmConfig,
         projectRoot: Path,
         targetPlatform: CompilationTarget? = null,
-        profileName: String = "release"
+        profileName: String = "release",
+        eventBus: CompilationEventBus? = null
     ): Result<CompilationContext> = runCatching {
         val packageInfo = config.`package`
             ?: throw IllegalArgumentException("Configuration must have [package] section for compilation")
@@ -29,7 +30,8 @@ object ConfigToContextConverter {
             sourceFiles = sourceFiles,
             outputPath = outputPath,
             outputType = packageInfo.outputType,
-            sourceDir = sourceDir
+            sourceDir = sourceDir,
+            eventBus = eventBus
         )
     }
     

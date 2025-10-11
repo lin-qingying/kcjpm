@@ -16,6 +16,7 @@ interface CompilationContext {
     val sourceDir: String get() = "src"
     val linkLibraries: List<String> get() = emptyList()
     val includeDirs: List<Path> get() = emptyList()
+    val eventBus: CompilationEventBus? get() = null
     
     fun validate(): Result<Unit>
 }

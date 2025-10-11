@@ -1,25 +1,23 @@
 package org.cangnova.kcjpm.build
 
-import io.github.oshai.kotlinlogging.KotlinLogging
 import kotlinx.coroutines.*
 import java.nio.file.Path
 import kotlin.io.path.exists
 import kotlin.io.path.isDirectory
 
-private val logger = KotlinLogging.logger {}
-
 /**
  * 默认编译流水线实现
  *
- * 包含四个标准编译阶段：验证、依赖解析、包编译、链接
+ * 包含三个标准编译阶段：验证、依赖解析、包编译
+ * cjc 编译器会自动处理链接过程，因此不需要单独的链接阶段
  * 支持动态添加、插入和移除阶段
  */
 class DefaultCompilationPipeline(
     private val mutableStages: MutableList<CompilationStage> = mutableListOf(
         ValidationStage(),
         DependencyResolutionStage(),
-        PackageCompilationStage(),
-        LinkingStage()
+        PackageCompilationStage()
+        // 移除 LinkingStage，因为 cjc 编译器会自动链接
     )
 ) : CompilationPipeline {
 
@@ -29,7 +27,19 @@ class DefaultCompilationPipeline(
     override suspend fun compile(context: CompilationContext): Result<CompilationResult> = runCatching {
         var currentContext = context
 
-        for (stage in stages) {
+        with(currentContext) {
+            emit(PipelineStartedEvent(totalStages = stages.size))
+        }
+
+        for ((index, stage) in stages.withIndex()) {
+            with(currentContext) {
+                emit(StageStartedEvent(
+                    stageName = stage.name,
+                    stageIndex = index,
+                    totalStages = stages.size
+                ))
+            }
+            
             val result = with(currentContext) { stage.execute() }
             if (result.isFailure) {
                 val error = result.exceptionOrNull()
@@ -38,6 +48,18 @@ class DefaultCompilationPipeline(
                 )
             }
             currentContext = result.getOrThrow()
+            
+            with(currentContext) {
+                emit(StageCompletedEvent(
+                    stageName = stage.name,
+                    stageIndex = index,
+                    totalStages = stages.size
+                ))
+            }
+        }
+
+        with(currentContext) {
+            emit(PipelineCompletedEvent(success = true))
         }
 
         CompilationResult.Success(
@@ -79,25 +101,33 @@ class ValidationStage : CompilationStage {
 
     context(context: CompilationContext)
     override suspend fun execute(): Result<CompilationContext> = runCatching {
+        emit(ValidationEvent("验证项目根目录: ${context.projectRoot}"))
+        
         if (!context.projectRoot.exists() || !context.projectRoot.isDirectory()) {
-            throw IllegalArgumentException("项目根目录不存在或不是目录: ${context.projectRoot}")
+            throw IllegalArgumentException("Project root does not exist or is not a directory: ${context.projectRoot}")
         }
 
+        emit(ValidationEvent("验证源文件 (${context.sourceFiles.size} 个文件)"))
+        
         if (context.sourceFiles.isEmpty()) {
-            throw IllegalArgumentException("没有指定源文件")
+            throw IllegalArgumentException("No source files specified")
         }
 
         context.sourceFiles.forEach { sourceFile ->
             if (!sourceFile.exists()) {
-                throw IllegalArgumentException("源文件不存在: $sourceFile")
+                throw IllegalArgumentException("Source file does not exist: $sourceFile")
             }
             if (!sourceFile.toString().endsWith(".cj")) {
-                throw IllegalArgumentException("不是有效的仓颉源文件: $sourceFile")
+                throw IllegalArgumentException("Not a valid Cangjie source file: $sourceFile")
             }
+            emit(ValidationEvent("验证源文件: $sourceFile", sourceFile))
         }
 
+        emit(ValidationEvent("验证输出路径: ${context.outputPath}"))
+        
         val outputParent = context.outputPath.parent
         if (outputParent != null && !outputParent.exists()) {
+            emit(ValidationEvent("创建输出目录: $outputParent", outputParent))
             outputParent.toFile().mkdirs()
         }
 
@@ -113,6 +143,24 @@ class DependencyResolutionStage : CompilationStage {
 
     context(context: CompilationContext)
     override suspend fun execute(): Result<CompilationContext> = runCatching {
+        emit(DependencyResolutionEvent(
+            message = "开始解析依赖 (${context.dependencies.size} 个依赖)"
+        ))
+        
+        context.dependencies.forEach { dependency ->
+            emit(DependencyResolutionEvent(
+                message = "依赖: ${dependency.name}",
+                dependencyName = dependency.name,
+                dependencyType = dependency.javaClass.simpleName
+            ))
+        }
+        
+        // TODO: 实际的依赖解析逻辑
+        
+        emit(DependencyResolutionEvent(
+            message = "依赖解析完成"
+        ))
+        
         context
     }
 }
@@ -130,17 +178,34 @@ class PackageCompilationStage : CompilationStage {
     context(context: CompilationContext)
     override suspend fun execute(): Result<CompilationContext> = runCatching {
         val packages = PackageDiscovery.discoverPackages()
+        val packageList = packages.toList()
+
+        emit(PackageDiscoveryEvent(
+            totalPackages = packageList.size,
+            packages = packageList.map { packageInfo ->
+                PackageDiscoveryInfo(
+                    name = packageInfo.name,
+                    path = packageInfo.packageRoot,
+                    sourceFileCount = packageInfo.sourceFiles.size,
+                    sourceFiles = packageInfo.sourceFiles
+                )
+            }
+        ))
 
         if (context.buildConfig.incremental) {
             val cacheDir = context.outputPath.resolve(".kcjpm-cache")
             cacheManager = IncrementalCacheManager(cacheDir)
+            emit(IncrementalCacheEvent(
+                message = "启用增量编译",
+                cacheDir = cacheDir
+            ))
         }
 
         var cache = cacheManager?.loadCache() ?: CompilationCache()
         val buildConfigHash = computeBuildConfigHash(context.buildConfig)
 
         val compiledLibraries = coroutineScope {
-            packages.map { packageInfo ->
+            packageList.map { packageInfo ->
                 async {
                     val result = compilePackageWithCache(packageInfo, context, cache, buildConfigHash)
                     synchronized(this@PackageCompilationStage) {
@@ -158,6 +223,10 @@ class PackageCompilationStage : CompilationStage {
 
         cacheManager?.saveCache(cache)
 
+        if (context.buildConfig.verbose) {
+            emit(ValidationEvent("所有包编译完成，生成了 ${compiledLibraries.size} 个库文件"))
+        }
+
         context
     }
 
@@ -174,20 +243,34 @@ class PackageCompilationStage : CompilationStage {
 
         if (changeResult is ChangeDetectionResult.NoChanges) {
             val cachedOutputPath = Path.of(cachedEntry!!.outputPath)
-            logger.debug { "包 ${packageInfo.name} 无变更，跳过编译" }
+            with(context) {
+                emit(ChangeDetectionEvent(
+                    packageName = packageInfo.name,
+                    changeType = "NoChanges",
+                    details = "无变更，跳过编译"
+                ))
+            }
             return@withContext cachedOutputPath
         }
 
-        when (changeResult) {
-            is ChangeDetectionResult.NoCacheFound -> logger.debug { "包 ${packageInfo.name}: 首次编译" }
-            is ChangeDetectionResult.BuildConfigChanged -> logger.debug { "包 ${packageInfo.name}: 构建配置变更" }
-            is ChangeDetectionResult.OutputMissing -> logger.debug { "包 ${packageInfo.name}: 输出文件缺失" }
-            is ChangeDetectionResult.FilesChanged -> {
-                if (changeResult.added.isNotEmpty()) logger.debug { "包 ${packageInfo.name}: 新增文件 ${changeResult.added.size} 个" }
-                if (changeResult.removed.isNotEmpty()) logger.debug { "包 ${packageInfo.name}: 删除文件 ${changeResult.removed.size} 个" }
-                if (changeResult.modified.isNotEmpty()) logger.debug { "包 ${packageInfo.name}: 修改文件 ${changeResult.modified.size} 个" }
+        with(context) {
+            when (changeResult) {
+                is ChangeDetectionResult.NoCacheFound -> 
+                    emit(ChangeDetectionEvent(packageInfo.name, "NoCacheFound", "首次编译"))
+                is ChangeDetectionResult.BuildConfigChanged -> 
+                    emit(ChangeDetectionEvent(packageInfo.name, "BuildConfigChanged", "构建配置变更"))
+                is ChangeDetectionResult.OutputMissing -> 
+                    emit(ChangeDetectionEvent(packageInfo.name, "OutputMissing", "输出文件缺失"))
+                is ChangeDetectionResult.FilesChanged -> {
+                    if (changeResult.added.isNotEmpty()) 
+                        emit(ChangeDetectionEvent(packageInfo.name, "FilesAdded", "新增文件 ${changeResult.added.size} 个"))
+                    if (changeResult.removed.isNotEmpty()) 
+                        emit(ChangeDetectionEvent(packageInfo.name, "FilesRemoved", "删除文件 ${changeResult.removed.size} 个"))
+                    if (changeResult.modified.isNotEmpty()) 
+                        emit(ChangeDetectionEvent(packageInfo.name, "FilesModified", "修改文件 ${changeResult.modified.size} 个"))
+                }
+                else -> {}
             }
-            else -> {}
         }
 
         compilePackage(packageInfo, context)
@@ -197,27 +280,39 @@ class PackageCompilationStage : CompilationStage {
         withContext(Dispatchers.IO) {
             context.outputPath.toFile().mkdirs()
 
-            val outputDir = context.outputPath.resolve("libs")
-            outputDir.toFile().mkdirs()
-
-
+            val libsDir = context.outputPath.resolve("libs")
+            libsDir.toFile().mkdirs()
 
             val isMainPackage = with(context) { packageInfo.isMainPackage() }
-            val libraryFileName = getPackageOutputFileName(packageInfo.name, context.outputType, isMainPackage)
+            val libraryFileName = getPackageOutputFileName(packageInfo.name, context.outputType, isMainPackage, context.buildConfig.target)
             val outputType = getPackageOutputType(context.outputType, isMainPackage)
-            val libraryPath = outputDir.resolve(libraryFileName)
+            
+            // 根据输出类型决定输出目录：可执行文件输出到上级目录，库文件输出到 libs 目录
+            val actualOutputDir = if (outputType == "exe") context.outputPath else libsDir
+            val libraryPath = actualOutputDir.resolve(libraryFileName)
 
             val importPaths = listOf(context.outputPath)
 
             val command = with(context) {
                 CompilationCommandBuilder().buildPackageCommand(
                     packageDir = packageInfo.packageRoot,
-                    outputDir = outputDir,
+                    outputDir = actualOutputDir,
                     outputFileName = libraryFileName,
                     outputType = outputType,
                     importPaths = importPaths,
                     hasSubPackages = packageInfo.hasSubPackages
                 )
+            }
+
+            with(context) {
+                emit(PackageCompilationStartedEvent(
+                    packageName = packageInfo.name,
+                    packagePath = packageInfo.packageRoot
+                ))
+                emit(PackageCompilationCommandEvent(
+                    packageName = packageInfo.name,
+                    command = command
+                ))
             }
 
             val processBuilder = ProcessBuilder(command)
@@ -240,13 +335,17 @@ class PackageCompilationStage : CompilationStage {
                         process.inputStream.bufferedReader().use { reader ->
                             reader.lines().forEach { line ->
                                 stdoutLines.add(line)
-                                logger.debug { "[STDOUT] $line" }
+                                with(context) {
+                                    emit(CompilerOutputEvent(
+                                        packageName = packageInfo.name,
+                                        line = line,
+                                        isStderr = false
+                                    ))
+                                }
 
                                 stdoutParser.parseLine(line, false)?.let { event ->
                                     when (event) {
-                                        is CjcOutputEvent.CompilationProgress -> {
-                                            logger.debug { event.message }
-                                        }
+                                        is CjcOutputEvent.CompilationProgress -> {}
                                         is CjcOutputEvent.CompilationError -> {
                                             synchronized(errors) { errors.add(event.error) }
                                         }
@@ -259,7 +358,7 @@ class PackageCompilationStage : CompilationStage {
                             }
                         }
                     } catch (e: Exception) {
-                        logger.error(e) { "[SYSTEM_ERROR] 读取 stdout 失败" }
+                        // 读取 stdout 失败
                     }
                 }
 
@@ -269,28 +368,30 @@ class PackageCompilationStage : CompilationStage {
                         process.errorStream.bufferedReader().use { reader ->
                             reader.lines().forEach { line ->
                                 stderrLines.add(line)
-                                logger.debug { "[STDERR] $line" }
+                                with(context) {
+                                    emit(CompilerOutputEvent(
+                                        packageName = packageInfo.name,
+                                        line = line,
+                                        isStderr = true
+                                    ))
+                                }
 
                                 stderrParser.parseLine(line, true)?.let { event ->
                                     when (event) {
                                         is CjcOutputEvent.CompilationError -> {
                                             synchronized(errors) { errors.add(event.error) }
-                                            logger.debug { "[COMPILER_ERROR] ${event.error.file}:${event.error.line}:${event.error.column}: ${event.error.message}" }
                                         }
                                         is CjcOutputEvent.CompilationWarning -> {
                                             synchronized(warnings) { warnings.add(event.warning) }
-                                            logger.debug { "[COMPILER_WARNING] ${event.warning.file}:${event.warning.line}:${event.warning.column}: ${event.warning.message}" }
                                         }
-                                        is CjcOutputEvent.CompilationProgress -> {
-                                            logger.debug { event.message }
-                                        }
+                                        is CjcOutputEvent.CompilationProgress -> {}
                                         else -> {}
                                     }
                                 }
                             }
                         }
                     } catch (e: Exception) {
-                        logger.error(e) { "[SYSTEM_ERROR] 读取 stderr 失败" }
+                        // 读取 stderr 失败
                     }
                 }
 
@@ -320,6 +421,16 @@ class PackageCompilationStage : CompilationStage {
             )
             reportBuilder.addPackageReport(report)
 
+            with(context) {
+                emit(PackageCompilationCompletedEvent(
+                    packageName = packageInfo.name,
+                    success = exitCode == 0,
+                    outputPath = if (exitCode == 0) libraryPath else null,
+                    errors = errors,
+                    warnings = warnings
+                ))
+            }
+
             if (exitCode != 0) {
                 val errorMsg = buildString {
                     appendLine("包编译失败: ${packageInfo.name}")
@@ -343,134 +454,6 @@ class PackageCompilationStage : CompilationStage {
 }
 
 /**
- * 链接阶段：查找 main 函数并链接所有库文件生成可执行文件
- */
-class LinkingStage : CompilationStage {
-    override val name: String = "linking"
-
-    private var linkingReport: LinkingReport? = null
-
-    context(context: CompilationContext)
-    override suspend fun execute(): Result<CompilationContext> = runCatching {
-        val mainFile = findMainFile(context.sourceFiles)
-            ?: throw IllegalArgumentException("找不到包含 main 函数的源文件")
-
-        val libraryFiles = DependencyCollector.collectLibraryFiles()
-
-        val command = CompilationCommandBuilder().buildExecutableCommand(
-            mainFile = mainFile,
-            libraryFiles = libraryFiles,
-            outputPath = context.outputPath
-        )
-
-        val processBuilder = ProcessBuilder(command)
-        processBuilder.directory(context.projectRoot.toFile())
-
-        val process = processBuilder.start()
-
-        val errors = mutableListOf<CjcDiagnostic>()
-        val warnings = mutableListOf<CjcDiagnostic>()
-
-        val stdoutReader = process.inputStream.bufferedReader()
-        val stderrReader = process.errorStream.bufferedReader()
-
-        val exitCode = coroutineScope {
-            val stdoutJob = launch(Dispatchers.IO) {
-                val stdoutParser = CjcOutputParser()
-                try {
-                    stdoutReader.useLines { lines ->
-                        lines.forEach { line ->
-                            stdoutParser.parseLine(line, false)?.let { event ->
-                                when (event) {
-                                    is CjcOutputEvent.CompilationProgress -> logger.debug { event.message }
-                                    is CjcOutputEvent.CompilationError -> synchronized(errors) { errors.add(event.error) }
-                                    is CjcOutputEvent.CompilationWarning -> synchronized(warnings) { warnings.add(event.warning) }
-                                    else -> {}
-                                }
-                            }
-                        }
-                    }
-                } catch (e: Exception) {
-                }
-            }
-
-            val stderrJob = launch(Dispatchers.IO) {
-                val stderrParser = CjcOutputParser()
-                try {
-                    stderrReader.useLines { lines ->
-                        lines.forEach { line ->
-                            stderrParser.parseLine(line, true)?.let { event ->
-                                when (event) {
-                                    is CjcOutputEvent.CompilationError -> {
-                                        synchronized(errors) { errors.add(event.error) }
-                                        logger.debug { "[COMPILER_ERROR] ${event.error.file}:${event.error.line}:${event.error.column}: ${event.error.message}" }
-                                    }
-                                    is CjcOutputEvent.CompilationWarning -> {
-                                        synchronized(warnings) { warnings.add(event.warning) }
-                                        logger.debug { "[COMPILER_WARNING] ${event.warning.file}:${event.warning.line}:${event.warning.column}: ${event.warning.message}" }
-                                    }
-                                    else -> {}
-                                }
-                            }
-                        }
-                    }
-                } catch (e: Exception) {
-                }
-            }
-
-            val exitCode = process.waitFor()
-            stdoutJob.join()
-            stderrJob.join()
-            exitCode
-        }
-
-        if (exitCode != 0) {
-            linkingReport = LinkingReport(
-                success = false,
-                errors = errors,
-                warnings = warnings,
-                outputPath = null,
-                stdoutLog = null,
-                stderrLog = null,
-                exception = RuntimeException("链接失败，退出码: $exitCode")
-            )
-
-            val errorMsg = if (errors.isNotEmpty()) {
-                errors.joinToString("\n") { "${it.file}:${it.line}:${it.column}: ${it.message}" }
-            } else {
-                "未知链接错误"
-            }
-            throw RuntimeException("链接失败\n$errorMsg")
-        }
-
-        linkingReport = LinkingReport(
-            success = true,
-            errors = emptyList(),
-            warnings = warnings,
-            outputPath = context.outputPath,
-            stdoutLog = null,
-            stderrLog = null,
-            exception = null
-        )
-
-        context
-    }
-
-    fun getReport(): LinkingReport? = linkingReport
-
-    private fun findMainFile(sourceFiles: List<Path>): Path? {
-        return sourceFiles.find { sourceFile ->
-            try {
-                val content = sourceFile.toFile().readText()
-                content.contains(Regex("""main\s*\(\s*\)\s*\{"""))
-            } catch (e: Exception) {
-                false
-            }
-        }
-    }
-}
-
-/**
  * 编译管理器：提供编译流水线的统一入口
  */
 class CompilationManager {
@@ -485,18 +468,10 @@ class CompilationManager {
             ?.stages
             ?.find { it is PackageCompilationStage } as? PackageCompilationStage
 
-        val linkingStage = (pipeline as? DefaultCompilationPipeline)
-            ?.stages
-            ?.find { it is LinkingStage } as? LinkingStage
-
         val reportBuilder = CompilationReportBuilder()
 
         packageStage?.getReport()?.packages?.forEach { pkgReport ->
             reportBuilder.addPackageReport(pkgReport)
-        }
-
-        linkingStage?.getReport()?.let { linkReport ->
-            reportBuilder.setLinkingReport(linkReport)
         }
 
         compilationReport = reportBuilder.build()
@@ -526,19 +501,26 @@ class CompilationManager {
 }
 
 private fun getPackageOutputType(outputType: org.cangnova.kcjpm.config.OutputType, isMainPackage: Boolean): String =
-    when {
-        outputType == org.cangnova.kcjpm.config.OutputType.EXECUTABLE && isMainPackage -> "exe"
-        outputType == org.cangnova.kcjpm.config.OutputType.DYNAMIC_LIBRARY -> "dylib"
+    when (outputType) {
+        org.cangnova.kcjpm.config.OutputType.EXECUTABLE if isMainPackage -> "exe"
+        org.cangnova.kcjpm.config.OutputType.DYNAMIC_LIBRARY -> "dylib"
         else -> "staticlib"
     }
 
 private fun getPackageOutputFileName(
     name: String, 
     outputType: org.cangnova.kcjpm.config.OutputType, 
-    isMainPackage: Boolean
+    isMainPackage: Boolean,
+    target: CompilationTarget?
 ): String =
-    when {
-        outputType == org.cangnova.kcjpm.config.OutputType.EXECUTABLE && isMainPackage -> name
-        outputType == org.cangnova.kcjpm.config.OutputType.DYNAMIC_LIBRARY -> "lib$name.b.dll"
+    when (outputType) {
+        org.cangnova.kcjpm.config.OutputType.EXECUTABLE if isMainPackage -> {
+            if (name.endsWith(".exe")) name
+            else when (target ?: CompilationTarget.current()) {
+                CompilationTarget.WINDOWS_X64 -> "$name.exe"
+                else -> name
+            }
+        }
+        org.cangnova.kcjpm.config.OutputType.DYNAMIC_LIBRARY -> "lib$name.b.dll"
         else -> "lib$name.a"
     }
