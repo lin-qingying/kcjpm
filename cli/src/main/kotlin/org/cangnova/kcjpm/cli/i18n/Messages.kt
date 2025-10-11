@@ -193,6 +193,11 @@ Messages {
             Language.CHINESE to "依赖名称"
         )
         
+        messages["add.arg.path"] = mapOf(
+            Language.ENGLISH to "Project path",
+            Language.CHINESE to "项目路径"
+        )
+        
         messages["add.opt.git"] = mapOf(
             Language.ENGLISH to "Git repository URL",
             Language.CHINESE to "Git 仓库 URL"
@@ -523,6 +528,16 @@ Messages {
             Language.CHINESE to "配置文件更新完成"
         )
         
+        messages["add.validatingDependency"] = mapOf(
+            Language.ENGLISH to "Validating dependency",
+            Language.CHINESE to "验证依赖"
+        )
+        
+        messages["add.dependencyValidated"] = mapOf(
+            Language.ENGLISH to "Dependency validated",
+            Language.CHINESE to "依赖验证完成"
+        )
+        
         messages["add.success"] = mapOf(
             Language.ENGLISH to "Dependency %s added successfully",
             Language.CHINESE to "依赖 %s 添加成功"
@@ -536,6 +551,31 @@ Messages {
         messages["add.failed"] = mapOf(
             Language.ENGLISH to "Failed to add dependency: %s",
             Language.CHINESE to "添加依赖失败: %s"
+        )
+        
+        messages["add.registryNotAccessible"] = mapOf(
+            Language.ENGLISH to "Remote registry is not accessible. Please check your network connection and registry configuration.",
+            Language.CHINESE to "远程仓库无法访问。请检查网络连接和仓库配置。"
+        )
+        
+        messages["add.dependencyNotFound"] = mapOf(
+            Language.ENGLISH to "Dependency not found in registry: %s",
+            Language.CHINESE to "在仓库中找不到依赖: %s"
+        )
+        
+        messages["add.gitNotAccessible"] = mapOf(
+            Language.ENGLISH to "Git repository is not accessible: %s",
+            Language.CHINESE to "Git 仓库无法访问: %s"
+        )
+        
+        messages["add.pathNotExist"] = mapOf(
+            Language.ENGLISH to "Local path does not exist: %s",
+            Language.CHINESE to "本地路径不存在: %s"
+        )
+        
+        messages["add.invalidVersion"] = mapOf(
+            Language.ENGLISH to "Invalid version format: %s",
+            Language.CHINESE to "版本格式无效: %s"
         )
         
         messages["update.loadingConfig"] = mapOf(

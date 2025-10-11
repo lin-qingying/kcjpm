@@ -66,6 +66,28 @@ interface DependencyManager {
      * @return 包含操作结果的 Result
      */
     fun clearCache(): Result<Unit>
+    
+    /**
+     * 验证依赖是否可以成功拉取。
+     *
+     * 在将依赖添加到配置文件之前，先验证该依赖是否存在且可访问。
+     * 对于不同类型的依赖：
+     * - REGISTRY: 检查远程仓库是否可访问，依赖是否存在
+     * - GIT: 检查 Git 仓库是否可访问
+     * - PATH: 检查本地路径是否存在
+     *
+     * @param name 依赖名称
+     * @param config 依赖配置
+     * @param projectRoot 项目根目录
+     * @param registryConfig 远程仓库配置
+     * @return 包含验证结果的 Result，成功时返回 Unit
+     */
+    fun validateDependency(
+        name: String,
+        config: org.cangnova.kcjpm.config.DependencyConfig,
+        projectRoot: Path,
+        registryConfig: org.cangnova.kcjpm.config.RegistryConfig?
+    ): Result<Unit>
 }
 
 /**
@@ -152,6 +174,147 @@ class DefaultDependencyManager(
     override fun clearCache(): Result<Unit> = runCatching {
         if (cacheDir.exists()) {
             cacheDir.toFile().deleteRecursively()
+        }
+    }
+    
+    /**
+     * 验证依赖是否可以成功拉取。
+     *
+     * 在添加依赖到配置文件之前，先验证该依赖是否存在且可访问。
+     * 对于不同类型的依赖执行不同的验证策略：
+     * - REGISTRY: 尝试访问远程仓库并检查依赖是否存在
+     * - GIT: 尝试访问 Git 仓库（执行 ls-remote）
+     * - PATH: 检查本地路径是否存在
+     *
+     * @param name 依赖名称
+     * @param config 依赖配置
+     * @param projectRoot 项目根目录
+     * @param registryConfig 远程仓库配置
+     * @return 包含验证结果的 Result，成功时返回 Unit
+     */
+    override fun validateDependency(
+        name: String,
+        config: org.cangnova.kcjpm.config.DependencyConfig,
+        projectRoot: Path,
+        registryConfig: org.cangnova.kcjpm.config.RegistryConfig?
+    ): Result<Unit> = runCatching {
+        val dependencyType = determineDependencyType(config)
+        val fetcher = resolver.findFetcher(dependencyType)
+            ?: throw IllegalArgumentException("No fetcher found for dependency type: $dependencyType")
+        
+        when (dependencyType) {
+            DependencyType.PATH -> {
+                val path = config.path ?: throw IllegalArgumentException("Path is required for path dependency")
+                val resolvedPath = projectRoot.resolve(path).normalize()
+                if (!resolvedPath.toFile().exists()) {
+                    throw IllegalArgumentException("Dependency path does not exist: $resolvedPath")
+                }
+            }
+            DependencyType.GIT -> {
+                val gitUrl = config.git ?: throw IllegalArgumentException("Git URL is required for git dependency")
+                validateGitRepository(gitUrl).getOrThrow()
+            }
+            DependencyType.REGISTRY -> {
+                val version = config.version ?: throw IllegalArgumentException("Version is required for registry dependency")
+                validateRegistryDependency(name, version, config.registry, registryConfig).getOrThrow()
+            }
+        }
+    }
+    
+    /**
+     * 验证 Git 仓库是否可访问。
+     *
+     * 执行 git ls-remote 命令检查仓库是否存在且可访问。
+     *
+     * @param gitUrl Git 仓库 URL
+     * @return 包含验证结果的 Result
+     */
+    private fun validateGitRepository(gitUrl: String): Result<Unit> = runCatching {
+        val process = ProcessBuilder("git", "ls-remote", "--exit-code", gitUrl)
+            .redirectErrorStream(true)
+            .start()
+        
+        val exitCode = process.waitFor()
+        if (exitCode != 0) {
+            val output = process.inputStream.bufferedReader().readText()
+            throw RuntimeException("Git repository not accessible: $gitUrl\n$output")
+        }
+    }
+    
+    /**
+     * 验证远程仓库依赖是否存在。
+     *
+     * 向远程仓库发送 HEAD 请求检查依赖包是否存在。
+     *
+     * @param name 依赖名称
+     * @param version 依赖版本
+     * @param registryName 注册表名称
+     * @param registryConfig 注册表配置
+     * @return 包含验证结果的 Result
+     */
+    private fun validateRegistryDependency(
+        name: String,
+        version: String,
+        registryName: String?,
+        registryConfig: org.cangnova.kcjpm.config.RegistryConfig?
+    ): Result<Unit> = runCatching {
+        val registryUrl = resolveRegistryUrl(registryName, registryConfig)
+        val packageUrl = "$registryUrl/packages/$name/$version/download"
+        
+        val connection = java.net.URI(packageUrl).toURL().openConnection() as java.net.HttpURLConnection
+        connection.requestMethod = "HEAD"
+        connection.connectTimeout = 10_000
+        connection.readTimeout = 10_000
+        
+        try {
+            val responseCode = connection.responseCode
+            when (responseCode) {
+                java.net.HttpURLConnection.HTTP_OK -> {
+                    // 依赖存在且可访问
+                }
+                java.net.HttpURLConnection.HTTP_NOT_FOUND -> {
+                    throw RuntimeException("Dependency not found in registry: $name@$version")
+                }
+                else -> {
+                    throw RuntimeException("Registry returned HTTP $responseCode for $name@$version")
+                }
+            }
+        } finally {
+            connection.disconnect()
+        }
+    }
+    
+    /**
+     * 解析注册表 URL。
+     *
+     * @param registryName 注册表名称或 URL
+     * @param registry 注册表配置
+     * @return 解析后的注册表 URL
+     */
+    private fun resolveRegistryUrl(registryName: String?, registry: org.cangnova.kcjpm.config.RegistryConfig?): String {
+        if (registryName == null) {
+            return registry?.default ?: "https://repo.cangjie-lang.cn"
+        }
+        
+        return when (registryName) {
+            "default" -> registry?.default ?: "https://repo.cangjie-lang.cn"
+            "private" -> registry?.privateUrl 
+                ?: throw IllegalArgumentException("Private registry URL not configured")
+            else -> registryName
+        }
+    }
+    
+    /**
+     * 根据依赖配置确定依赖类型。
+     *
+     * @param config 依赖配置
+     * @return 依赖类型
+     */
+    private fun determineDependencyType(config: org.cangnova.kcjpm.config.DependencyConfig): DependencyType {
+        return when {
+            config.path != null -> DependencyType.PATH
+            config.git != null -> DependencyType.GIT
+            else -> DependencyType.REGISTRY
         }
     }
     

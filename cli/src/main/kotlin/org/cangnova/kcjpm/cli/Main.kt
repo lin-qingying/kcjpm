@@ -152,8 +152,8 @@ class KcjpmCli {
         }
         
         class AddCommand : Subcommand("add", Messages.get("cmd.add")) {
-            val path by argument(ArgType.String, description = Messages.get("add.arg.path")).optional().default(".")
             val dependency by argument(ArgType.String, description = Messages.get("add.arg.dependency"))
+            val path by option(ArgType.String, description = Messages.get("add.arg.path")).default(".")
             val git by option(ArgType.String, description = Messages.get("add.opt.git"))
             val branch by option(ArgType.String, description = Messages.get("add.opt.branch"))
             val tag by option(ArgType.String, description = Messages.get("add.opt.tag"))
@@ -186,7 +186,6 @@ class KcjpmCli {
         
         class UpdateCommand : Subcommand("update", Messages.get("cmd.update")) {
             val path by argument(ArgType.String, description = Messages.get("update.arg.path")).optional().default(".")
-            val dependency by argument(ArgType.String, description = Messages.get("update.arg.dependency")).optional()
             
             override fun execute() {
                 globalOptions = GlobalOptions(
@@ -201,7 +200,7 @@ class KcjpmCli {
                 
                 val command = org.cangnova.kcjpm.cli.parser.Command.Update(
                     path = path,
-                    dependency = dependency
+                    dependency = null
                 )
                 exitCode = runBlocking {
                     UpdateCommandHandler(output).handle(command, globalOptions)

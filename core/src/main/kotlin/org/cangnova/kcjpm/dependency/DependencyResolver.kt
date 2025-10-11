@@ -48,6 +48,14 @@ interface DependencyResolver {
         projectRoot: Path,
         registry: RegistryConfig?
     ): Result<Dependency>
+    
+    /**
+     * 根据依赖类型查找对应的拉取器。
+     *
+     * @param type 依赖类型
+     * @return 支持该类型的拉取器，如果未找到则返回 null
+     */
+    fun findFetcher(type: DependencyType): DependencyFetcher?
 }
 
 /**
@@ -127,6 +135,16 @@ class DefaultDependencyResolver(
             ?: throw IllegalArgumentException("No fetcher found for dependency type: $type")
         
         fetcher.fetch(name, config, projectRoot, registry).getOrThrow()
+    }
+    
+    /**
+     * 根据依赖类型查找对应的拉取器。
+     *
+     * @param type 依赖类型
+     * @return 支持该类型的拉取器，如果未找到则返回 null
+     */
+    override fun findFetcher(type: DependencyType): DependencyFetcher? {
+        return fetchers.find { it.canHandle(type) }
     }
     
     /**
