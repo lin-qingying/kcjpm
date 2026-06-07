@@ -51,7 +51,7 @@ enum class OutputType {
 
 @Serializable
 data class RegistryConfig(
-    val default: String = "https://repo.cangjie-lang.cn",
+    val default: String = org.cangnova.kcjpm.dependency.CentralRepositoryDefaults.DEFAULT_REGISTRY_URL,
     val mirrors: List<String> = emptyList(),
     @SerialName("private-url")
     val privateUrl: String? = null,
@@ -189,6 +189,39 @@ object DependencyMapSerializer : KSerializer<Map<String, DependencyConfig>> {
     }
 
     override fun serialize(encoder: Encoder, value: Map<String, DependencyConfig>) {
-        throw NotImplementedError("Serialization not supported")
+        require(encoder is TomlEncoder) { "DependencyMapSerializer only works with TOML" }
+
+        val table = buildTomlTable {
+            value.forEach { (name, dependency) ->
+                if (dependency.canUseVersionShortcut()) {
+                    literal(name, dependency.version!!)
+                } else {
+                    table(name) {
+                        dependency.version?.let { literal("version", it) }
+                        dependency.registry?.let { literal("registry", it) }
+                        dependency.path?.let { literal("path", it) }
+                        dependency.git?.let { literal("git", it) }
+                        dependency.tag?.let { literal("tag", it) }
+                        dependency.branch?.let { literal("branch", it) }
+                        dependency.commit?.let { literal("commit", it) }
+                        if (dependency.optional) {
+                            literal("optional", true)
+                        }
+                    }
+                }
+            }
+        }
+
+        encoder.encodeTomlElement(table)
     }
+
+    private fun DependencyConfig.canUseVersionShortcut(): Boolean =
+        version != null &&
+            registry == null &&
+            path == null &&
+            git == null &&
+            tag == null &&
+            branch == null &&
+            commit == null &&
+            !optional
 }

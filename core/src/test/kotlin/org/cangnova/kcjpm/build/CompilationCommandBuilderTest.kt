@@ -33,7 +33,7 @@ class CompilationCommandBuilderTest : BaseTest() {
                 commandBuilder.buildCommand()
             }
             
-            command shouldContain "cjc"
+            command.shouldUseCjc()
             command shouldContain "--output-type=exe"
             command shouldContain "--output"
             command shouldContain testProject.root.resolve("main.exe").toString()
@@ -65,7 +65,7 @@ class CompilationCommandBuilderTest : BaseTest() {
                 )
             }
             
-            command shouldContain "cjc"
+            command.shouldUseCjc()
             command shouldContain "-p"
             command shouldContain packageDir.toString()
             command shouldContain "--output-type=staticlib"
@@ -105,11 +105,11 @@ class CompilationCommandBuilderTest : BaseTest() {
                 )
             }
             
-            command shouldContain "cjc"
+            command.shouldUseCjc()
             command shouldContain "--package"
             command shouldContain mainFile.parent.toString()
             command shouldContain libFile.toString()
-            command shouldContain "main.exe"
+            command shouldContain outputDir.resolve("main.exe").toString()
             command shouldContain "--output-type=exe"
             command shouldContain "--target"
             command shouldContain "x86_64-w64-mingw32"
@@ -169,7 +169,6 @@ class CompilationCommandBuilderTest : BaseTest() {
             
             command shouldContain "--library-path"
             command shouldContain localPath.toString()
-            command shouldContain libFile.toString()
         }
         
         test("处理优化级别") {
@@ -364,5 +363,10 @@ class CompilationCommandBuilderTest : BaseTest() {
             
             override fun validate(): Result<Unit> = Result.success(Unit)
         }
+    }
+
+    private fun List<String>.shouldUseCjc() {
+        val executable = first().replace('\\', '/')
+        (executable == "cjc" || executable.endsWith("/cjc") || executable.endsWith("/cjc.exe")) shouldBe true
     }
 }

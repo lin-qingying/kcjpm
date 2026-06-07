@@ -7,6 +7,7 @@ import org.cangnova.kcjpm.config.ConfigLoader
 import org.cangnova.kcjpm.config.toml.TomlConfigParser
 import org.cangnova.kcjpm.test.BaseTest
 import kotlin.io.path.Path
+import kotlin.io.path.exists
 
 class EndToEndCompilationTest : BaseTest() {
 
@@ -16,7 +17,7 @@ class EndToEndCompilationTest : BaseTest() {
     private val bsonProjectPath = Path("D:\\code\\cangjie\\bson")
 
     init {
-        test("应该能够从 bson 项目路径加载配置并完成整个编译流程") {
+        test("应该能够从 bson 项目路径加载配置并完成整个编译流程").config(enabled = isExternalBsonTestEnabled()) {
             val context = ConfigLoader.loadAndConvert(
                 projectRoot = bsonProjectPath,
                 profileName = "release"
@@ -28,4 +29,7 @@ class EndToEndCompilationTest : BaseTest() {
             }
         }
     }
+
+    private fun isExternalBsonTestEnabled(): Boolean =
+        System.getProperty("kcjpm.external.tests") == "true" && bsonProjectPath.exists()
 }

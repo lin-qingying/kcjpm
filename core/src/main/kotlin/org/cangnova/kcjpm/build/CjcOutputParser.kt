@@ -88,6 +88,14 @@ class CjcOutputParser {
 
     fun parseLine(line: String, isError: Boolean = false): CjcOutputEvent? {
         val cleaned = stripAnsiCodes(line.trim())
+
+        if (pendingDiagnostic != null &&
+            !arrowLocationPattern.matches(cleaned) &&
+            !simpleWarningPattern.matches(cleaned) &&
+            !simpleErrorPattern.matches(cleaned)
+        ) {
+            pendingDiagnostic = null
+        }
         
         simpleWarningPattern.matchEntire(cleaned)?.let { match ->
             val message = match.groupValues[1]
@@ -95,7 +103,7 @@ class CjcOutputParser {
             collectingSnippet = false
             snippetLines.clear()
             diagnosticComplete = false
-            return null
+            return CjcOutputEvent.RawOutput(line, isError)
         }
 
         simpleErrorPattern.matchEntire(cleaned)?.let { match ->
@@ -104,7 +112,7 @@ class CjcOutputParser {
             collectingSnippet = false
             snippetLines.clear()
             diagnosticComplete = false
-            return null
+            return CjcOutputEvent.RawOutput(line, isError)
         }
 
         arrowLocationPattern.matchEntire(cleaned)?.let { match ->
@@ -115,9 +123,21 @@ class CjcOutputParser {
                 pending.file = file
                 pending.line = lineNum.toIntOrNull()
                 pending.column = column.toIntOrNull()
-                collectingSnippet = true
-                diagnosticComplete = false
-                return null
+                pendingDiagnostic = null
+                collectingSnippet = false
+                diagnosticComplete = true
+                val diagnostic = CjcDiagnostic(
+                    severity = pending.severity,
+                    message = pending.message,
+                    file = pending.file,
+                    line = pending.line,
+                    column = pending.column
+                )
+                return if (pending.severity == CjcDiagnostic.Severity.ERROR) {
+                    CjcOutputEvent.CompilationError(diagnostic)
+                } else {
+                    CjcOutputEvent.CompilationWarning(diagnostic)
+                }
             }
             return null
         }

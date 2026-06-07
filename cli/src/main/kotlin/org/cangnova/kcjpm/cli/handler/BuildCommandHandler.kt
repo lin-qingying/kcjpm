@@ -10,7 +10,7 @@ import org.cangnova.kcjpm.cli.parser.Command
 import org.cangnova.kcjpm.cli.parser.GlobalOptions
 import org.cangnova.kcjpm.config.ConfigLoader
 import org.cangnova.kcjpm.config.ConfigToContextConverter
-import org.cangnova.kcjpm.dependency.DefaultDependencyManager
+import org.cangnova.kcjpm.dependency.DependencyManagerFactory
 import org.cangnova.kcjpm.dependency.DependencyManagerWithLock
 import org.cangnova.kcjpm.workspace.DefaultWorkspaceManager
 import java.nio.file.Path
@@ -123,9 +123,8 @@ class BuildCommandHandler(output: OutputAdapter) : BaseCommandHandler(output) {
             if (options.verbose) {
                 output.startProgress(Messages.get("build.resolvingDeps"))
             }
-            val cacheDir = Path(System.getProperty("user.home")).resolve(".kcjpm").resolve("cache")
             val dependencyManager = DependencyManagerWithLock(
-                DefaultDependencyManager(cacheDir)
+                DependencyManagerFactory.create(projectPath, config).getOrThrow()
             )
             
             val (dependencies, lockFile) = dependencyManager.installWithLock(config, projectPath).getOrThrow()
@@ -153,7 +152,14 @@ class BuildCommandHandler(output: OutputAdapter) : BaseCommandHandler(output) {
                 val targetPlatform = command.target?.let { 
                     CompilationTarget.valueOf(it.uppercase())
                 }
-                ConfigToContextConverter.convert(config, projectPath, targetPlatform, profileName, eventBus).getOrThrow()
+                val convertedContext = ConfigToContextConverter.convert(
+                    config,
+                    projectPath,
+                    targetPlatform,
+                    profileName,
+                    eventBus
+                ).getOrThrow()
+                convertedContext.withResolvedDependencies(dependencies)
             }
             
             val compilationManager = CompilationManager()
@@ -227,3 +233,10 @@ class BuildCommandHandler(output: OutputAdapter) : BaseCommandHandler(output) {
         }
     }
 }
+
+private fun CompilationContext.withResolvedDependencies(
+    resolvedDependencies: List<org.cangnova.kcjpm.build.Dependency>
+): CompilationContext =
+    object : CompilationContext by this {
+        override val dependencies: List<org.cangnova.kcjpm.build.Dependency> = resolvedDependencies
+    }

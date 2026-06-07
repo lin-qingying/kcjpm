@@ -8,6 +8,7 @@ import io.kotest.matchers.string.shouldContain
 import org.cangnova.kcjpm.build.CompilationTarget
 import org.cangnova.kcjpm.config.toml.TomlConfigParser
 import org.cangnova.kcjpm.test.BaseTest
+import kotlin.io.path.writeText
 
 class ConfigLoaderTest : BaseTest() {
     init {
@@ -80,6 +81,28 @@ class ConfigLoaderTest : BaseTest() {
             context.sourceFiles.size shouldBe 1
         }
 
+        test("转换编译上下文时应该使用 cangjie-repo.toml 中的中心仓地址") {
+            val project = createTestProject()
+            project.createConfig(
+                tomlWithDependencies(
+                    packageName = "my-app",
+                    dependencies = "std-http = \"1.2.0\""
+                )
+            )
+            project.createSourceFile("main.cj", "// main file")
+            project.root.resolve("cangjie-repo.toml").writeText(
+                """
+                [repository.home]
+                registry = "https://context.example.com/registry"
+                """.trimIndent()
+            )
+
+            val context = ConfigLoader.loadAndConvert(project.root).getOrThrow()
+
+            val dependency = context.dependencies.single() as org.cangnova.kcjpm.build.Dependency.RegistryDependency
+            dependency.registryUrl shouldBe "https://context.example.com/registry"
+        }
+
         test("未指定时应该使用默认配置文件") {
             val project = createTestProject()
             project.createConfig(simpleToml())
@@ -119,13 +142,8 @@ class ConfigLoaderTest : BaseTest() {
             context.buildConfig.debugInfo shouldBe true
         }
 
-        test("应该解析真实的官方格式配置文件") {
+        test("应该解析真实的官方格式配置文件").config(enabled = isExternalBsonTestEnabled()) {
             val bsonProjectRoot = java.nio.file.Paths.get("D:\\code\\cangjie\\bson")
-
-            if (!bsonProjectRoot.toFile().exists()) {
-                println("跳过测试: bson 项目不存在")
-                return@test
-            }
 
             val result = ConfigLoader.loadFromProjectRoot(bsonProjectRoot)
 
@@ -138,13 +156,8 @@ class ConfigLoaderTest : BaseTest() {
             config.`package`?.description shouldBe "nothing here111"
         }
 
-        test("应该完成从配置到编译命令的完整流程") {
+        test("应该完成从配置到编译命令的完整流程").config(enabled = isExternalBsonTestEnabled()) {
             val bsonProjectRoot = java.nio.file.Paths.get("D:\\code\\cangjie\\bson")
-
-            if (!bsonProjectRoot.toFile().exists()) {
-                println("跳过测试: bson 项目不存在")
-                return@test
-            }
 
             val contextResult = ConfigLoader.loadAndConvert(
                 bsonProjectRoot,
@@ -164,12 +177,6 @@ class ConfigLoaderTest : BaseTest() {
             val packageCommands = with(context) {
                 commandBuilder.buildPackageCommands()
             }
-            
-            println("发现 ${packageCommands.size} 个包:")
-            packageCommands.forEachIndexed { index, command ->
-                println("包 ${index + 1}: ${command.joinToString(" ")}")
-            }
-            
             packageCommands.size shouldBe 3
             
             packageCommands.forEach { command ->
@@ -182,4 +189,8 @@ class ConfigLoaderTest : BaseTest() {
             }
         }
     }
+
+    private fun isExternalBsonTestEnabled(): Boolean =
+        System.getProperty("kcjpm.external.tests") == "true" &&
+            java.nio.file.Paths.get("D:\\code\\cangjie\\bson").toFile().exists()
 }

@@ -204,7 +204,10 @@ class DependencyManagerTest : BaseTest() {
             val resolver = DefaultDependencyResolver(listOf(fetcher))
             val manager = DefaultDependencyManager(cacheDir, resolver)
             
-            val libA = cacheDir.resolve("registry/lib-a/1.0.0")
+            val registryCacheDir = cacheDir
+                .resolve("registry")
+                .resolve(RegistryCacheLayout.registryScope(CentralRepositoryDefaults.DEFAULT_REGISTRY_URL))
+            val libA = registryCacheDir.resolve("lib-a/1.0.0")
             libA.toFile().mkdirs()
             libA.writeConfig(
                 CjpmConfig(
@@ -220,7 +223,7 @@ class DependencyManagerTest : BaseTest() {
                 )
             )
             
-            val libB = cacheDir.resolve("registry/lib-b/1.0.0")
+            val libB = registryCacheDir.resolve("lib-b/1.0.0")
             libB.toFile().mkdirs()
             libB.writeConfig(
                 CjpmConfig(

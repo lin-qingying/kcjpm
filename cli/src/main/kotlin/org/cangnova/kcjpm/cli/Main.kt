@@ -153,7 +153,7 @@ class KcjpmCli {
         
         class AddCommand : Subcommand("add", Messages.get("cmd.add")) {
             val dependency by argument(ArgType.String, description = Messages.get("add.arg.dependency"))
-            val path by option(ArgType.String, description = Messages.get("add.arg.path")).default(".")
+            val projectPath by option(ArgType.String, fullName = "project", description = Messages.get("add.arg.path")).default(".")
             val git by option(ArgType.String, description = Messages.get("add.opt.git"))
             val branch by option(ArgType.String, description = Messages.get("add.opt.branch"))
             val tag by option(ArgType.String, description = Messages.get("add.opt.tag"))
@@ -171,7 +171,7 @@ class KcjpmCli {
                 )
                 
                 val command = org.cangnova.kcjpm.cli.parser.Command.Add(
-                    path = path,
+                    path = projectPath,
                     dependency = dependency,
                     git = git,
                     branch = branch,
@@ -210,6 +210,7 @@ class KcjpmCli {
         
         class RunCommand : Subcommand("run", Messages.get("cmd.run")) {
             val path by argument(ArgType.String, description = Messages.get("run.arg.path")).optional().default(".")
+            val runArgs by argument(ArgType.String, description = "program arguments").vararg()
             val verboseMode by option(ArgType.Boolean, shortName = "v", fullName = "verbose", description = Messages.get("run.opt.verbose")).default(false)
             
             override fun execute() {
@@ -225,7 +226,7 @@ class KcjpmCli {
                 
                 val command = org.cangnova.kcjpm.cli.parser.Command.Run(
                     path = path,
-                    args = emptyList()
+                    args = runArgs
                 )
                 exitCode = runBlocking {
                     RunCommandHandler(output).handle(command, globalOptions)

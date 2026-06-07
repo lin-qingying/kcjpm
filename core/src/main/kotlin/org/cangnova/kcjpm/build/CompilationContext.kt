@@ -185,7 +185,9 @@ sealed interface Dependency {
         override val name: String,
         override val version: String,
         val registryUrl: String,
-        val localPath: Path? = null
+        val localPath: Path? = null,
+        val checksum: String? = null,
+        val cacheName: String = name
     ) : Dependency
     
     /**

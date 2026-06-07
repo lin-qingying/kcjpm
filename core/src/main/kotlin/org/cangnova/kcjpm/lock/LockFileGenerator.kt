@@ -97,7 +97,9 @@ class DefaultLockFileGenerator(
                 currentSource.toSourceString() == existing.source.toSourceString()
             }
             is Dependency.RegistryDependency -> {
-                dep.version == existing.version
+                val currentSource = PackageSource.fromDependency(dep, Path.of("."))
+                dep.version == existing.version &&
+                    currentSource.toSourceString() == existing.source.toSourceString()
             }
         }
     }
@@ -115,7 +117,7 @@ class DefaultLockFileGenerator(
                 }
             }
             is Dependency.RegistryDependency -> {
-                dep.localPath?.let { calculateDirectoryChecksum(it) }
+                dep.checksum ?: dep.localPath?.let { calculateDirectoryChecksum(it) }
             }
         }
     }

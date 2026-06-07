@@ -2,7 +2,9 @@ package org.cangnova.kcjpm.lock
 
 import kotlinx.datetime.Instant
 import org.cangnova.kcjpm.build.Dependency
+import org.cangnova.kcjpm.process.ProcessRunner
 import java.nio.file.Path
+import java.time.Duration
 
 data class LockFile(
     val version: Int = 1,
@@ -91,15 +93,13 @@ sealed class PackageSource {
             if (localPath == null) return "unknown"
             
             return try {
-                val process = ProcessBuilder("git", "rev-parse", "HEAD")
-                    .directory(localPath.toFile())
-                    .redirectErrorStream(true)
-                    .start()
-                
-                val output = process.inputStream.bufferedReader().readText().trim()
-                val exitCode = process.waitFor()
-                
-                if (exitCode == 0) output else "unknown"
+                val result = ProcessRunner.run(
+                    listOf("git", "rev-parse", "HEAD"),
+                    workingDirectory = localPath,
+                    timeout = Duration.ofSeconds(10)
+                ).getOrThrow()
+
+                if (result.exitCode == 0) result.output.trim() else "unknown"
             } catch (e: Exception) {
                 "unknown"
             }

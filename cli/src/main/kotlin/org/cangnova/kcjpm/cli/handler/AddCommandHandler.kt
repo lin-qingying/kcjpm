@@ -7,11 +7,13 @@ import org.cangnova.kcjpm.cli.parser.GlobalOptions
 import org.cangnova.kcjpm.config.ConfigLoader
 import org.cangnova.kcjpm.config.ConfigFormatDetector
 import org.cangnova.kcjpm.config.ConfigModifier
+import org.cangnova.kcjpm.config.CjpmConfig
 import org.cangnova.kcjpm.config.DependencyConfig
 import org.cangnova.kcjpm.dependency.DefaultDependencyManager
+import org.cangnova.kcjpm.dependency.DependencyManagerFactory
+import java.nio.file.Path as NioPath
 import kotlin.io.path.Path
 import kotlin.io.path.exists
-import java.nio.file.Paths
 
 class AddCommandHandler(output: OutputAdapter) : BaseCommandHandler(output) {
     
@@ -37,7 +39,7 @@ class AddCommandHandler(output: OutputAdapter) : BaseCommandHandler(output) {
             val (dependencyName, dependencyConfig) = parseDependencyInput(command)
             
             output.startProgress(Messages.get("add.validatingDependency"))
-            val dependencyManager = createDependencyManager()
+            val dependencyManager = createDependencyManager(projectPath, config)
             dependencyManager.validateDependency(
                 dependencyName,
                 dependencyConfig,
@@ -137,9 +139,6 @@ class AddCommandHandler(output: OutputAdapter) : BaseCommandHandler(output) {
         }
     }
     
-    private fun createDependencyManager(): DefaultDependencyManager {
-        val userHome = System.getProperty("user.home")
-        val cacheDir = Paths.get(userHome, ".kcjpm", "cache")
-        return DefaultDependencyManager(cacheDir)
-    }
+    private fun createDependencyManager(projectPath: NioPath, config: CjpmConfig): DefaultDependencyManager =
+        DependencyManagerFactory.create(projectPath, config).getOrThrow()
 }

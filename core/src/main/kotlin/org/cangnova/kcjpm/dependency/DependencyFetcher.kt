@@ -3,7 +3,10 @@ package org.cangnova.kcjpm.dependency
 import org.cangnova.kcjpm.build.Dependency
 import org.cangnova.kcjpm.config.DependencyConfig
 import org.cangnova.kcjpm.config.RegistryConfig
+import org.cangnova.kcjpm.process.ProcessRunner
+import java.nio.file.Files
 import java.nio.file.Path
+import java.time.Duration
 
 /**
  * 依赖拉取器接口，负责从特定来源获取依赖。
@@ -213,14 +216,9 @@ class GitDependencyFetcher(
             add(targetDir.toString())
         }
         
-        val process = ProcessBuilder(command)
-            .redirectErrorStream(true)
-            .start()
-        
-        val exitCode = process.waitFor()
-        if (exitCode != 0) {
-            val output = process.inputStream.bufferedReader().readText()
-            throw RuntimeException("Failed to clone repository: $output")
+        val result = ProcessRunner.run(command, timeout = Duration.ofMinutes(2)).getOrThrow()
+        if (result.exitCode != 0) {
+            throw RuntimeException("Failed to clone repository: ${result.output}")
         }
         
         if (reference is Dependency.GitReference.Commit) {
@@ -238,12 +236,14 @@ class GitDependencyFetcher(
      * @throws RuntimeException 如果 Git 命令执行失败
      */
     private fun updateRepository(targetDir: Path, reference: Dependency.GitReference) {
-        val fetchProcess = ProcessBuilder("git", "fetch", "--depth", "1")
-            .directory(targetDir.toFile())
-            .redirectErrorStream(true)
-            .start()
-        
-        fetchProcess.waitFor()
+        val fetchResult = ProcessRunner.run(
+            listOf("git", "fetch", "--depth", "1"),
+            workingDirectory = targetDir,
+            timeout = Duration.ofMinutes(1)
+        ).getOrThrow()
+        if (fetchResult.exitCode != 0) {
+            throw RuntimeException("Failed to fetch repository: ${fetchResult.output}")
+        }
         
         val checkoutRef = when (reference) {
             is Dependency.GitReference.Branch -> "origin/${reference.name}"
@@ -251,15 +251,13 @@ class GitDependencyFetcher(
             is Dependency.GitReference.Commit -> reference.hash
         }
         
-        val checkoutProcess = ProcessBuilder("git", "checkout", checkoutRef)
-            .directory(targetDir.toFile())
-            .redirectErrorStream(true)
-            .start()
-        
-        val exitCode = checkoutProcess.waitFor()
-        if (exitCode != 0) {
-            val output = checkoutProcess.inputStream.bufferedReader().readText()
-            throw RuntimeException("Failed to checkout $checkoutRef: $output")
+        val checkoutResult = ProcessRunner.run(
+            listOf("git", "checkout", checkoutRef),
+            workingDirectory = targetDir,
+            timeout = Duration.ofSeconds(30)
+        ).getOrThrow()
+        if (checkoutResult.exitCode != 0) {
+            throw RuntimeException("Failed to checkout $checkoutRef: ${checkoutResult.output}")
         }
     }
     
@@ -271,15 +269,13 @@ class GitDependencyFetcher(
      * @throws RuntimeException 如果 Git 命令执行失败
      */
     private fun checkoutCommit(targetDir: Path, commit: String) {
-        val process = ProcessBuilder("git", "checkout", commit)
-            .directory(targetDir.toFile())
-            .redirectErrorStream(true)
-            .start()
-        
-        val exitCode = process.waitFor()
-        if (exitCode != 0) {
-            val output = process.inputStream.bufferedReader().readText()
-            throw RuntimeException("Failed to checkout commit $commit: $output")
+        val result = ProcessRunner.run(
+            listOf("git", "checkout", commit),
+            workingDirectory = targetDir,
+            timeout = Duration.ofSeconds(30)
+        ).getOrThrow()
+        if (result.exitCode != 0) {
+            throw RuntimeException("Failed to checkout commit $commit: ${result.output}")
         }
     }
     
@@ -315,7 +311,8 @@ class GitDependencyFetcher(
  */
 class RegistryDependencyFetcher(
     private val cacheDir: Path,
-    private val httpClient: DependencyHttpClient = DefaultDependencyHttpClient()
+    private val httpClient: DependencyHttpClient = DefaultDependencyHttpClient(),
+    private val centralRepositoryClient: CentralRepositoryClient = CentralRepositoryClient(httpClient)
 ) : DependencyFetcher {
     override fun canHandle(type: DependencyType): Boolean = type == DependencyType.REGISTRY
     
@@ -342,16 +339,21 @@ class RegistryDependencyFetcher(
         projectRoot: Path,
         registry: RegistryConfig?
     ): Result<Dependency> = runCatching {
-        val version = config.version ?: throw IllegalArgumentException("Version is required for registry dependency")
-        val registryUrl = resolveRegistryUrl(config.registry, registry)
+        val versionRequirement = config.version ?: throw IllegalArgumentException("Version is required for registry dependency")
+        val registryUrls = RegistryUrlResolver.resolve(config.registry, registry)
+        val coordinate = CentralRepositoryCoordinate.parse(name)
+
+        val resolvedPackage = resolveFromRegistries(registryUrls, name, versionRequirement)
         
-        val localPath = downloadFromRegistry(name, version, registryUrl)
+        val localPath = downloadFromRegistry(resolvedPackage)
         
         Dependency.RegistryDependency(
             name = name,
-            version = version,
-            registryUrl = registryUrl,
-            localPath = localPath
+            version = resolvedPackage.version,
+            registryUrl = resolvedPackage.registryUrl,
+            localPath = localPath,
+            checksum = "sha256:${resolvedPackage.sha256sum}",
+            cacheName = coordinate.cacheName
         )
     }
     
@@ -369,42 +371,52 @@ class RegistryDependencyFetcher(
      * @return 解析后的注册表 URL
      * @throws IllegalArgumentException 如果私有注册表未配置
      */
-    private fun resolveRegistryUrl(registryName: String?, registry: RegistryConfig?): String {
-        if (registryName == null) {
-            return registry?.default ?: "https://repo.cangjie-lang.cn"
+    private fun resolveFromRegistries(
+        registryUrls: List<String>,
+        name: String,
+        versionRequirement: String
+    ): CentralRepositoryPackage {
+        val failures = mutableListOf<Throwable>()
+
+        for (registryUrl in registryUrls) {
+            val result = centralRepositoryClient.resolvePackage(registryUrl, name, versionRequirement)
+            if (result.isSuccess) {
+                return result.getOrThrow()
+            }
+            result.exceptionOrNull()?.let { failures.add(it) }
         }
-        
-        return when (registryName) {
-            "default" -> registry?.default ?: "https://repo.cangjie-lang.cn"
-            "private" -> registry?.privateUrl 
-                ?: throw IllegalArgumentException("Private registry URL not configured")
-            else -> registryName
+
+        if (failures.isNotEmpty() && failures.all { it.isRegistryNotFoundFailure() }) {
+            throw RuntimeException("Dependency not found in registry: $name@$versionRequirement")
         }
+
+        throw failures.lastOrNull() ?: RuntimeException("No registry URL configured for $name@$versionRequirement")
     }
     
     /**
      * 从注册表下载依赖。
      *
-     * 下载的依赖保存在 `cache/registry/<name>/<version>` 目录下。
+     * 下载的依赖保存在 `cache/registry/<registry-scope>/<name>/<version>` 目录下。
      * 如果缓存已存在，直接返回缓存路径。
      *
-     * @param name 依赖名称
-     * @param version 依赖版本
-     * @param registryUrl 注册表 URL
      * @return 本地缓存路径
      * @throws RuntimeException 如果下载失败
      */
-    private fun downloadFromRegistry(name: String, version: String, registryUrl: String): Path {
-        val targetDir = cacheDir.resolve("registry").resolve(name).resolve(version)
+    private fun downloadFromRegistry(pkg: CentralRepositoryPackage): Path {
+        val targetDir = cacheDir
+            .resolve("registry")
+            .resolve(RegistryCacheLayout.registryScope(pkg.registryUrl))
+            .resolve(pkg.coordinate.cacheName)
+            .resolve(pkg.version)
         
-        if (targetDir.toFile().exists()) {
+        if (Files.exists(targetDir) && Files.exists(targetDir.resolve("cjpm.toml"))) {
             return targetDir
         }
+        if (Files.exists(targetDir)) {
+            targetDir.toFile().deleteRecursively()
+        }
         
-        targetDir.toFile().mkdirs()
-        
-        val packageUrl = "$registryUrl/packages/$name/$version/download"
-        httpClient.download(packageUrl, targetDir).getOrThrow()
+        centralRepositoryClient.downloadPackage(pkg, targetDir).getOrThrow()
         
         return targetDir
     }

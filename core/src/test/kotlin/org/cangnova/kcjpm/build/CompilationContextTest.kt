@@ -123,7 +123,7 @@ class CompilationContextTest : BaseTest() {
                     Dependency.RegistryDependency(
                         "std-http",
                         "1.2.0",
-                        "https://repo.cangjie-lang.cn"
+                        "https://pkg.cangjie-lang.cn/registry"
                     )
                 )
                 .build()

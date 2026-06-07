@@ -1,6 +1,11 @@
 package org.cangnova.kcjpm.build
 
 import kotlinx.coroutines.*
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
+import org.cangnova.kcjpm.config.ConfigLoader
+import org.cangnova.kcjpm.dependency.DependencyManagerFactory
+import org.cangnova.kcjpm.dependency.DependencyManagerWithLock
 import java.nio.file.Path
 import kotlin.io.path.exists
 import kotlin.io.path.isDirectory
@@ -136,7 +141,7 @@ class ValidationStage : CompilationStage {
 }
 
 /**
- * 依赖解析阶段：解析和下载项目依赖（当前为占位实现）
+ * 依赖解析阶段：解析、下载并锁定项目依赖。
  */
 class DependencyResolutionStage : CompilationStage {
     override val name: String = "dependency-resolution"
@@ -146,7 +151,12 @@ class DependencyResolutionStage : CompilationStage {
         emit(DependencyResolutionEvent(
             message = "开始解析依赖 (${context.dependencies.size} 个依赖)"
         ))
-        
+
+        if (context.dependencies.isEmpty()) {
+            emit(DependencyResolutionEvent(message = "依赖解析完成"))
+            return@runCatching context
+        }
+
         context.dependencies.forEach { dependency ->
             emit(DependencyResolutionEvent(
                 message = "依赖: ${dependency.name}",
@@ -154,14 +164,28 @@ class DependencyResolutionStage : CompilationStage {
                 dependencyType = dependency.javaClass.simpleName
             ))
         }
-        
-        // TODO: 实际的依赖解析逻辑
-        
+
+        val resolvedDependencies = withContext(Dispatchers.IO) {
+            val config = ConfigLoader.loadFromProjectRoot(context.projectRoot).getOrThrow()
+            val dependencyManager = DependencyManagerWithLock(
+                DependencyManagerFactory.create(context.projectRoot, config).getOrThrow()
+            )
+            dependencyManager.installWithLock(config, context.projectRoot).getOrThrow().first
+        }
+
+        resolvedDependencies.forEach { dependency ->
+            emit(DependencyResolutionEvent(
+                message = "已解析依赖: ${dependency.name}",
+                dependencyName = dependency.name,
+                dependencyType = dependency.javaClass.simpleName
+            ))
+        }
+
         emit(DependencyResolutionEvent(
-            message = "依赖解析完成"
+            message = "依赖解析完成 (${resolvedDependencies.size} 个依赖)"
         ))
-        
-        context
+
+        context.withDependencies(resolvedDependencies)
     }
 }
 
@@ -174,6 +198,7 @@ class PackageCompilationStage : CompilationStage {
     private val reportBuilder = CompilationReportBuilder()
     private var cacheManager: IncrementalCacheManager? = null
     private val changeDetector = FileChangeDetector()
+    private var compiledLibraries: List<Path> = emptyList()
 
     context(context: CompilationContext)
     override suspend fun execute(): Result<CompilationContext> = runCatching {
@@ -203,20 +228,28 @@ class PackageCompilationStage : CompilationStage {
 
         var cache = cacheManager?.loadCache() ?: CompilationCache()
         val buildConfigHash = computeBuildConfigHash(context.buildConfig)
+        val packageParallelism = calculatePackageParallelism(packageList.size, context.buildConfig)
+        val compilerJobsPerPackage = calculateCompilerJobsPerPackage(packageParallelism, context.buildConfig)
+        val semaphore = Semaphore(packageParallelism)
+        val packageContext = context.withBuildConfig(
+            context.buildConfig.copy(maxParallelSize = compilerJobsPerPackage)
+        )
 
-        val compiledLibraries = coroutineScope {
+        compiledLibraries = coroutineScope {
             packageList.map { packageInfo ->
                 async {
-                    val result = compilePackageWithCache(packageInfo, context, cache, buildConfigHash)
-                    synchronized(this@PackageCompilationStage) {
-                        cache = cacheManager?.updatePackageCache(
-                            cache,
-                            packageInfo,
-                            result,
-                            buildConfigHash
-                        ) ?: cache
+                    semaphore.withPermit {
+                        val result = compilePackageWithCache(packageInfo, packageContext, cache, buildConfigHash)
+                        synchronized(this@PackageCompilationStage) {
+                            cache = cacheManager?.updatePackageCache(
+                                cache,
+                                packageInfo,
+                                result,
+                                buildConfigHash
+                            ) ?: cache
+                        }
+                        result
                     }
-                    result
                 }
             }.toList().awaitAll()
         }
@@ -231,6 +264,8 @@ class PackageCompilationStage : CompilationStage {
     }
 
     fun getReport(): CompilationReport = reportBuilder.build()
+
+    fun getCompiledLibraries(): List<Path> = compiledLibraries
 
     private suspend fun compilePackageWithCache(
         packageInfo: PackageInfo,
@@ -456,17 +491,17 @@ class PackageCompilationStage : CompilationStage {
 /**
  * 编译管理器：提供编译流水线的统一入口
  */
-class CompilationManager {
+class CompilationManager(
     private val pipeline: CompilationPipeline = DefaultCompilationPipeline()
+) {
     private var compilationReport: CompilationReport? = null
 
     context(context: CompilationContext)
     suspend fun compile(): Result<CompilationResult> {
         val result = pipeline.execute()
 
-        val packageStage = (pipeline as? DefaultCompilationPipeline)
-            ?.stages
-            ?.find { it is PackageCompilationStage } as? PackageCompilationStage
+        val packageStage = pipeline.stages
+            .find { it is PackageCompilationStage } as? PackageCompilationStage
 
         val reportBuilder = CompilationReportBuilder()
 
@@ -492,12 +527,32 @@ class CompilationManager {
 
         compilationReport = packageStage.getReport()
 
-        emptyList()
+        packageStage.getCompiledLibraries()
     }
 
     fun withCustomPipeline(stages: List<CompilationStage>): CompilationManager {
-        return CompilationManager()
+        return CompilationManager(DefaultCompilationPipeline(stages.toMutableList()))
     }
+}
+
+private fun CompilationContext.withDependencies(resolvedDependencies: List<Dependency>): CompilationContext =
+    object : CompilationContext by this {
+        override val dependencies: List<Dependency> = resolvedDependencies
+    }
+
+private fun CompilationContext.withBuildConfig(newBuildConfig: BuildConfig): CompilationContext =
+    object : CompilationContext by this {
+        override val buildConfig: BuildConfig = newBuildConfig
+    }
+
+private fun calculatePackageParallelism(packageCount: Int, buildConfig: BuildConfig): Int {
+    if (!buildConfig.parallel || packageCount <= 1) return 1
+    return minOf(packageCount, buildConfig.maxParallelSize).coerceAtLeast(1)
+}
+
+private fun calculateCompilerJobsPerPackage(packageParallelism: Int, buildConfig: BuildConfig): Int {
+    if (!buildConfig.parallel) return buildConfig.maxParallelSize.coerceAtLeast(1)
+    return (buildConfig.maxParallelSize / packageParallelism).coerceAtLeast(1)
 }
 
 private fun getPackageOutputType(outputType: org.cangnova.kcjpm.config.OutputType, isMainPackage: Boolean): String =

@@ -56,7 +56,8 @@ abstract class BaseTest : FunSpec() {
      * @return 项目根目录路径
      */
     protected fun createTestProject(projectName: String = "test-project"): TestProject {
-        val root = createTempDir("kcjpm-$projectName")
+        val workspaceRoot = createTempDir("kcjpm-$projectName-workspace")
+        val root = workspaceRoot.resolve(projectName)
         
         // 创建基本目录结构
         Files.createDirectories(root.resolve("src"))

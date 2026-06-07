@@ -7,6 +7,7 @@ import org.cangnova.kcjpm.build.Dependency
 import org.cangnova.kcjpm.test.BaseTest
 import java.nio.file.Path
 import kotlin.io.path.Path
+import kotlin.io.path.exists
 
 class BsonProjectCompilationTest : BaseTest() {
     
@@ -14,7 +15,7 @@ class BsonProjectCompilationTest : BaseTest() {
     private val bsonProjectPath = Path("D:\\code\\cangjie\\bson")
     
     init {
-        test("应该能够编译真实的 bson 项目") {
+        test("应该能够编译真实的 bson 项目").config(enabled = isExternalBsonTestEnabled()) {
             val sourceFiles = listOf(
                 bsonProjectPath.resolve("src/a/b.cj"),
                 bsonProjectPath.resolve("src/b/b.cj"),
@@ -33,6 +34,9 @@ class BsonProjectCompilationTest : BaseTest() {
             }
         }
     }
+
+    private fun isExternalBsonTestEnabled(): Boolean =
+        System.getProperty("kcjpm.external.tests") == "true" && bsonProjectPath.exists()
     
     private fun createBsonCompilationContext(
         projectRoot: Path,

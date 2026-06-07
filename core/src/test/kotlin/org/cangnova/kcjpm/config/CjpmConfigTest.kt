@@ -6,6 +6,7 @@ import io.kotest.matchers.shouldBe
 import io.kotest.matchers.shouldNotBe
 import net.peanuuutz.tomlkt.Toml
 import org.cangnova.kcjpm.test.BaseTest
+import kotlin.io.path.readText
 
 class CjpmConfigTest : BaseTest() {
     init {
@@ -37,14 +38,14 @@ class CjpmConfigTest : BaseTest() {
             output-type = "library"
             
             [registry]
-            default = "https://repo.cangjie-lang.cn"
+            default = "https://pkg.cangjie-lang.cn/registry"
             mirrors = ["https://mirror1.com", "https://mirror2.com"]
         """.trimIndent()
         
         val config = toml.decodeFromString(CjpmConfig.serializer(), content)
         
         config.registry shouldNotBe null
-        config.registry?.default shouldBe "https://repo.cangjie-lang.cn"
+        config.registry?.default shouldBe "https://pkg.cangjie-lang.cn/registry"
         config.registry?.mirrors?.size shouldBe 2
         config.registry?.mirrors?.shouldContain("https://mirror1.com")
     }
@@ -211,7 +212,7 @@ class CjpmConfigTest : BaseTest() {
             license = "Apache-2.0"
             
             [registry]
-            default = "https://repo.cangjie-lang.cn"
+            default = "https://pkg.cangjie-lang.cn/registry"
             
             [dependencies]
             std-http = "1.2.0"
@@ -229,6 +230,35 @@ class CjpmConfigTest : BaseTest() {
         shouldNotThrowAny {
             toml.decodeFromString(CjpmConfig.serializer(), content)
         }
+    }
+
+    test("应该保存并回读带完整依赖对象的配置") {
+        val config = CjpmConfig(
+            `package` = PackageInfo(
+                name = "saved-project",
+                version = "0.1.0",
+                cjcVersion = "1.0.0",
+                outputType = OutputType.EXECUTABLE
+            ),
+            dependencies = mapOf(
+                "std-http" to DependencyConfig(version = "1.2.0"),
+                "local-lib" to DependencyConfig(path = "../local-lib", optional = true),
+                "git-lib" to DependencyConfig(git = "https://example.com/git-lib.git", tag = "v1.0.0")
+            ),
+            publish = PublishConfig(registry = "private", exclude = listOf("target")),
+            test = TestConfig(timeout = 120, parallel = false)
+        )
+        val configFile = createTempDir().resolve("cjpm.toml")
+
+        ConfigModifier.saveConfig(config, configFile)
+        val restored = toml.decodeFromString(CjpmConfig.serializer(), configFile.readText())
+
+        restored.dependencies["std-http"]?.version shouldBe "1.2.0"
+        restored.dependencies["local-lib"]?.path shouldBe "../local-lib"
+        restored.dependencies["local-lib"]?.optional shouldBe true
+        restored.dependencies["git-lib"]?.tag shouldBe "v1.0.0"
+        restored.publish?.registry shouldBe "private"
+        restored.test?.parallel shouldBe false
     }
     }
 }

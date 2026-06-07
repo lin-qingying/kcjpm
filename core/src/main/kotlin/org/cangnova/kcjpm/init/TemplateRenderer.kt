@@ -19,15 +19,6 @@ object TemplateRenderer {
     private fun processConditionals(template: String, variables: Map<String, Any>): String {
         var result = template
         
-        val ifPattern = Regex("""\{\{#if\s+(\w+)\}\}(.*?)\{\{/if\}\}""", RegexOption.DOT_MATCHES_ALL)
-        result = ifPattern.replace(result) { matchResult ->
-            val varName = matchResult.groupValues[1]
-            val content = matchResult.groupValues[2]
-            
-            val varValue = variables[varName]
-            if (isTruthy(varValue)) content else ""
-        }
-        
         val ifElsePattern = Regex(
             """\{\{#if\s+(\w+)\}\}(.*?)\{\{else\}\}(.*?)\{\{/if\}\}""",
             RegexOption.DOT_MATCHES_ALL
@@ -39,6 +30,15 @@ object TemplateRenderer {
             
             val varValue = variables[varName]
             if (isTruthy(varValue)) trueContent else falseContent
+        }
+
+        val ifPattern = Regex("""\{\{#if\s+(\w+)\}\}(.*?)\{\{/if\}\}""", RegexOption.DOT_MATCHES_ALL)
+        result = ifPattern.replace(result) { matchResult ->
+            val varName = matchResult.groupValues[1]
+            val content = matchResult.groupValues[2]
+
+            val varValue = variables[varName]
+            if (isTruthy(varValue)) content else ""
         }
         
         return result

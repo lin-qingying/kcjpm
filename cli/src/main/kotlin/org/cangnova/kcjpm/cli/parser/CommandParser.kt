@@ -67,7 +67,7 @@ class CommandParser {
         }
         
         val globalOptions = parseGlobalOptions(args)
-        val commandArgs = args.filterNot { it.startsWith("--verbose") || it.startsWith("--quiet") || it.startsWith("--no-color") }
+        val commandArgs = args.filterNot { it in globalOptionNames }
         
         val command = when (commandArgs.firstOrNull()) {
             "build", "b" -> parseBuildCommand(commandArgs)
@@ -87,7 +87,7 @@ class CommandParser {
     private fun parseGlobalOptions(args: Array<String>): GlobalOptions {
         return GlobalOptions(
             verbose = args.contains("--verbose"),
-            quiet = args.contains("--quiet"),
+            quiet = args.contains("--quiet") || args.contains("-q"),
             color = !args.contains("--no-color")
         )
     }
@@ -192,6 +192,9 @@ class CommandParser {
                 "--path" -> {
                     localPath = args.getOrNull(++i)
                 }
+                "--project" -> {
+                    path = args.getOrNull(++i) ?: path
+                }
                 else -> {
                     if (!args[i].startsWith("--") && dependency == null) {
                         dependency = args[i]
@@ -212,8 +215,21 @@ class CommandParser {
     }
     
     private fun parseUpdateCommand(args: List<String>): Command {
-        val path = "."
-        val dependency = args.getOrNull(1)?.takeIf { !it.startsWith("--") }
+        var path = "."
+        var dependency: String? = null
+
+        var i = 1
+        while (i < args.size) {
+            when (args[i]) {
+                "--project", "--path" -> path = args.getOrNull(++i) ?: path
+                else -> {
+                    if (!args[i].startsWith("--") && dependency == null) {
+                        dependency = args[i]
+                    }
+                }
+            }
+            i++
+        }
         
         return Command.Update(
             path = path,
@@ -222,12 +238,37 @@ class CommandParser {
     }
     
     private fun parseRunCommand(args: List<String>): Command {
-        val path = "."
-        val runArgs = args.drop(1).dropWhile { it.startsWith("--") }
+        var path = "."
+        val runArgs = mutableListOf<String>()
+        var pathConsumed = false
+
+        var i = 1
+        while (i < args.size) {
+            when (args[i]) {
+                "--project", "--path" -> path = args.getOrNull(++i) ?: path
+                "--" -> {
+                    runArgs.addAll(args.drop(i + 1))
+                    break
+                }
+                else -> {
+                    if (!pathConsumed && !args[i].startsWith("--")) {
+                        path = args[i]
+                        pathConsumed = true
+                    } else {
+                        runArgs.add(args[i])
+                    }
+                }
+            }
+            i++
+        }
         
         return Command.Run(
             path = path,
             args = runArgs
         )
+    }
+
+    private companion object {
+        val globalOptionNames = setOf("--verbose", "--quiet", "-q", "--no-color")
     }
 }

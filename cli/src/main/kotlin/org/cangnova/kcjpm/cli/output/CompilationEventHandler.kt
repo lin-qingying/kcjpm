@@ -117,9 +117,7 @@ class CompilationEventHandler(
     
     private fun handlePackageCompilationStarted(event: PackageCompilationStartedEvent) {
         currentPackage = event.packageName
-        if (verbose) {
-            output.startProgress("编译包 ${event.packageName}")
-        }
+        output.startProgress("编译包 ${event.packageName}")
     }
     
     private fun handlePackageCompilationCommand(event: PackageCompilationCommandEvent) {
@@ -166,8 +164,10 @@ class CompilationEventHandler(
                 }
             }
         } else {
-            // 非详细模式下，只有编译失败时才显示错误信息
-            if (!event.success && event.errors.isNotEmpty()) {
+            if (event.success) {
+                val outputInfo = event.outputPath?.let { " -> ${it.fileName}" } ?: ""
+                output.completeProgress("编译包 ${event.packageName}$outputInfo")
+            } else if (event.errors.isNotEmpty()) {
                 output.error("编译包 ${event.packageName} 失败")
                 output.error("错误详情:")
                 event.errors.take(5).forEach { error ->

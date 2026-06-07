@@ -3,8 +3,11 @@ package org.cangnova.kcjpm.dependency
 import org.cangnova.kcjpm.build.Dependency
 import org.cangnova.kcjpm.config.CjpmConfig
 import org.cangnova.kcjpm.config.ConfigLoader
+import org.cangnova.kcjpm.config.RegistryConfig
 import org.cangnova.kcjpm.lock.*
+import org.cangnova.kcjpm.process.ProcessRunner
 import java.nio.file.Path
+import java.time.Duration
 import kotlin.io.path.exists
 
 /**
@@ -98,11 +101,8 @@ interface DependencyManager {
  *
  * 示例用法：
  * ```kotlin
- * val manager = DefaultDependencyManager(
- *     cacheDir = Path.of(System.getProperty("user.home"), ".kcjpm", "cache")
- * )
- *
  * val config = ConfigLoader.loadFromProjectRoot(projectRoot).getOrThrow()
+ * val manager = DependencyManagerFactory.create(projectRoot, config).getOrThrow()
  * val dependencies = manager.installDependencies(config, projectRoot).getOrThrow()
  * ```
  *
@@ -111,7 +111,9 @@ interface DependencyManager {
  */
 class DefaultDependencyManager(
     private val cacheDir: Path,
-    private val resolver: DependencyResolver = createDefaultResolver(cacheDir)
+    private val resolver: DependencyResolver = createDefaultResolver(cacheDir),
+    private val centralRepositoryClient: CentralRepositoryClient = CentralRepositoryClient(),
+    private val defaultRegistryConfig: RegistryConfig? = null
 ) : DependencyManager {
     
     /**
@@ -128,7 +130,7 @@ class DefaultDependencyManager(
         return resolver.resolve(
             config.dependencies,
             projectRoot,
-            config.registry
+            effectiveRegistry(config.registry)
         )
     }
     
@@ -155,9 +157,11 @@ class DefaultDependencyManager(
         
         val transitiveDeps = resolveTransitiveDependencies(directDeps).getOrThrow()
         
-        val allDeps = (directDeps + transitiveDeps).distinctBy { it.name }
+        val resolvedDeps = directDeps + transitiveDeps
         
-        validateDependencies(allDeps).getOrThrow()
+        validateDependencies(resolvedDeps).getOrThrow()
+
+        val allDeps = resolvedDeps.distinctBy { it.name }
         
         allDeps
     }
@@ -216,7 +220,7 @@ class DefaultDependencyManager(
             }
             DependencyType.REGISTRY -> {
                 val version = config.version ?: throw IllegalArgumentException("Version is required for registry dependency")
-                validateRegistryDependency(name, version, config.registry, registryConfig).getOrThrow()
+                validateRegistryDependency(name, version, config.registry, effectiveRegistry(registryConfig)).getOrThrow()
             }
         }
     }
@@ -230,14 +234,13 @@ class DefaultDependencyManager(
      * @return 包含验证结果的 Result
      */
     private fun validateGitRepository(gitUrl: String): Result<Unit> = runCatching {
-        val process = ProcessBuilder("git", "ls-remote", "--exit-code", gitUrl)
-            .redirectErrorStream(true)
-            .start()
-        
-        val exitCode = process.waitFor()
-        if (exitCode != 0) {
-            val output = process.inputStream.bufferedReader().readText()
-            throw RuntimeException("Git repository not accessible: $gitUrl\n$output")
+        val result = ProcessRunner.run(
+            listOf("git", "ls-remote", "--exit-code", gitUrl),
+            timeout = Duration.ofSeconds(30)
+        ).getOrThrow()
+
+        if (result.exitCode != 0) {
+            throw RuntimeException("Git repository not accessible: $gitUrl\n${result.output}")
         }
     }
     
@@ -258,50 +261,22 @@ class DefaultDependencyManager(
         registryName: String?,
         registryConfig: org.cangnova.kcjpm.config.RegistryConfig?
     ): Result<Unit> = runCatching {
-        val registryUrl = resolveRegistryUrl(registryName, registryConfig)
-        val packageUrl = "$registryUrl/packages/$name/$version/download"
-        
-        val connection = java.net.URI(packageUrl).toURL().openConnection() as java.net.HttpURLConnection
-        connection.requestMethod = "HEAD"
-        connection.connectTimeout = 10_000
-        connection.readTimeout = 10_000
-        
-        try {
-            val responseCode = connection.responseCode
-            when (responseCode) {
-                java.net.HttpURLConnection.HTTP_OK -> {
-                    // 依赖存在且可访问
-                }
-                java.net.HttpURLConnection.HTTP_NOT_FOUND -> {
-                    throw RuntimeException("Dependency not found in registry: $name@$version")
-                }
-                else -> {
-                    throw RuntimeException("Registry returned HTTP $responseCode for $name@$version")
-                }
+        val registryUrls = RegistryUrlResolver.resolve(registryName, registryConfig)
+        val failures = mutableListOf<Throwable>()
+
+        for (registryUrl in registryUrls) {
+            val result = centralRepositoryClient.resolvePackage(registryUrl, name, version)
+            if (result.isSuccess) {
+                return@runCatching
             }
-        } finally {
-            connection.disconnect()
+            result.exceptionOrNull()?.let { failures.add(it) }
         }
-    }
-    
-    /**
-     * 解析注册表 URL。
-     *
-     * @param registryName 注册表名称或 URL
-     * @param registry 注册表配置
-     * @return 解析后的注册表 URL
-     */
-    private fun resolveRegistryUrl(registryName: String?, registry: org.cangnova.kcjpm.config.RegistryConfig?): String {
-        if (registryName == null) {
-            return registry?.default ?: "https://repo.cangjie-lang.cn"
+
+        if (failures.isNotEmpty() && failures.all { it.isRegistryNotFoundFailure() }) {
+            throw RuntimeException("Dependency not found in registry: $name@$version")
         }
-        
-        return when (registryName) {
-            "default" -> registry?.default ?: "https://repo.cangjie-lang.cn"
-            "private" -> registry?.privateUrl 
-                ?: throw IllegalArgumentException("Private registry URL not configured")
-            else -> registryName
-        }
+
+        throw failures.lastOrNull() ?: RuntimeException("Dependency not found in registry: $name@$version")
     }
     
     /**
@@ -382,7 +357,7 @@ class DefaultDependencyManager(
         val subDeps = resolver.resolve(
             depConfig.dependencies,
             depPath,
-            depConfig.registry
+            effectiveRegistry(depConfig.registry)
         ).getOrThrow()
         
         for (subDep in subDeps) {
@@ -416,6 +391,10 @@ class DefaultDependencyManager(
             }
             throw IllegalStateException("Dependency version conflicts detected:\n$message")
         }
+    }
+
+    private fun effectiveRegistry(registryConfig: RegistryConfig?): RegistryConfig? {
+        return registryConfig ?: defaultRegistryConfig
     }
     
     companion object {
@@ -469,9 +448,9 @@ data class DependencyGraph(
             }
         }
         
-        result.reversed()
+        result
     }
-    
+
     /**
      * 拓扑排序的递归辅助函数。
      *

@@ -22,7 +22,7 @@ class CompilationManagerTest : BaseTest() {
             runBlocking {
                 val result = with(context) { validationStage.execute() }
                 result.isFailure shouldBe true
-                result.exceptionOrNull()?.message shouldContain "项目根目录不存在"
+                result.exceptionOrNull()?.message shouldContain "Project root does not exist"
             }
         }
         
@@ -39,7 +39,7 @@ class CompilationManagerTest : BaseTest() {
             runBlocking {
                 val result = with(context) { validationStage.execute() }
                 result.isFailure shouldBe true
-                result.exceptionOrNull()?.message shouldContain "源文件不存在"
+                result.exceptionOrNull()?.message shouldContain "Source file does not exist"
             }
         }
         
@@ -56,7 +56,7 @@ class CompilationManagerTest : BaseTest() {
             runBlocking {
                 val result = with(context) { validationStage.execute() }
                 result.isFailure shouldBe true
-                result.exceptionOrNull()?.message shouldContain "不是有效的仓颉源文件"
+                result.exceptionOrNull()?.message shouldContain "Not a valid Cangjie source file"
             }
         }
         
@@ -115,27 +115,27 @@ class CompilationManagerTest : BaseTest() {
                 }
             """.trimIndent())
             
-            val packageStage = PackageCompilationStage()
             val context = createMockContext(
                 projectRoot = testProject.root,
                 sourceFiles = listOf(pkg1File1, pkg1File2, pkg2File)
             )
-            
-            runBlocking {
-                val result = with(context) { packageStage.execute() }
-                result.isSuccess shouldBe true
+
+            val packages = with(context) {
+                PackageDiscovery.discoverPackages().toList()
             }
+
+            packages shouldHaveSize 2
+            packages.map { it.name }.toSet() shouldBe setOf("package1", "package2")
         }
         
 
         test("编译流水线应按顺序执行所有阶段") {
             val pipeline = DefaultCompilationPipeline()
             
-            pipeline.stages shouldHaveSize 4
+            pipeline.stages shouldHaveSize 3
             pipeline.stages[0].name shouldBe "validation"
             pipeline.stages[1].name shouldBe "dependency-resolution"
             pipeline.stages[2].name shouldBe "package-compilation"
-            pipeline.stages[3].name shouldBe "linking"
         }
         
         test("应该能够添加自定义编译阶段") {
@@ -149,7 +149,7 @@ class CompilationManagerTest : BaseTest() {
             }
             
             val newPipeline = pipeline.addStage(customStage)
-            newPipeline.stages shouldHaveSize 5
+            newPipeline.stages shouldHaveSize 4
             newPipeline.stages.last().name shouldBe "custom-stage"
         }
         
@@ -167,7 +167,7 @@ class CompilationManagerTest : BaseTest() {
             result.isSuccess shouldBe true
             
             val newPipeline = result.getOrThrow()
-            newPipeline.stages shouldHaveSize 5
+            newPipeline.stages shouldHaveSize 4
             newPipeline.stages[1].name shouldBe "custom-stage"
         }
         
@@ -190,7 +190,7 @@ class CompilationManagerTest : BaseTest() {
             val pipeline = DefaultCompilationPipeline()
             val newPipeline = pipeline.removeStage("dependency-resolution")
             
-            newPipeline.stages shouldHaveSize 3
+            newPipeline.stages shouldHaveSize 2
             newPipeline.stages.none { it.name == "dependency-resolution" } shouldBe true
         }
         
@@ -201,6 +201,16 @@ class CompilationManagerTest : BaseTest() {
                     println("Hello, Cangjie!")
                 }
             """.trimIndent())
+            var customStageExecuted = false
+            val customStage = object : CompilationStage {
+                override val name = "custom-stage"
+
+                context(context: CompilationContext)
+                override suspend fun execute(): Result<CompilationContext> {
+                    customStageExecuted = true
+                    return Result.success(context)
+                }
+            }
             
             val context = createMockContext(
                 projectRoot = testProject.root,
@@ -208,9 +218,11 @@ class CompilationManagerTest : BaseTest() {
             )
             
             runBlocking {
-                val result = with(context) { compilationManager.compile() }
-                // 由于没有真实的编译器，会在某个阶段失败
-                result.isFailure shouldBe true
+                val manager = compilationManager.withCustomPipeline(listOf(customStage))
+                val result = with(context) { manager.compile() }
+
+                result.isSuccess shouldBe true
+                customStageExecuted shouldBe true
             }
         }
     }

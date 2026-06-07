@@ -202,9 +202,6 @@ kcjpm build
 [workspace]
 members = ["packages/*"]
 default-members = []
-
-[registry]
-default = "https://repo.cangjie-lang.cn"
                 """.trimIndent()
             ),
             TemplateFile(

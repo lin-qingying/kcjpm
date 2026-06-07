@@ -5,7 +5,7 @@ import org.cangnova.kcjpm.cli.output.OutputAdapter
 import org.cangnova.kcjpm.cli.parser.Command
 import org.cangnova.kcjpm.cli.parser.GlobalOptions
 import org.cangnova.kcjpm.config.ConfigLoader
-import org.cangnova.kcjpm.dependency.DefaultDependencyManager
+import org.cangnova.kcjpm.dependency.DependencyManagerFactory
 import org.cangnova.kcjpm.dependency.DependencyManagerWithLock
 import kotlin.io.path.Path
 import kotlin.io.path.exists
@@ -31,9 +31,8 @@ class UpdateCommandHandler(output: OutputAdapter) : BaseCommandHandler(output) {
             output.info(Messages.get("update.updating"))
             output.newline()
             
-            val cacheDir = Path(System.getProperty("user.home")).resolve(".kcjpm").resolve("cache")
             val dependencyManager = DependencyManagerWithLock(
-                DefaultDependencyManager(cacheDir)
+                DependencyManagerFactory.create(projectPath, config).getOrThrow()
             )
             
             if (command.dependency != null) {

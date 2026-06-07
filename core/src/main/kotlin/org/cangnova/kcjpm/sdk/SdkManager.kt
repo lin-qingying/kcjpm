@@ -1,6 +1,8 @@
 package org.cangnova.kcjpm.sdk
 
+import org.cangnova.kcjpm.process.ProcessRunner
 import java.nio.file.Path
+import java.time.Duration
 import kotlin.io.path.exists
 import kotlin.io.path.isDirectory
 import kotlin.io.path.isExecutable
@@ -80,14 +82,12 @@ data class CangjieSDK(
      * @return 版本字符串，失败时返回 null
      */
     fun detectVersion(): String? = runCatching {
-        val process = ProcessBuilder(compilerPath.toString(), "--version")
-            .redirectErrorStream(true)
-            .start()
-        
-        val output = process.inputStream.bufferedReader().readText().trim()
-        process.waitFor()
-        
-        if (process.exitValue() == 0) output else null
+        val result = ProcessRunner.run(
+            listOf(compilerPath.toString(), "--version"),
+            timeout = Duration.ofSeconds(10)
+        ).getOrThrow()
+
+        if (result.exitCode == 0) result.output.trim() else null
     }.getOrNull()
 }
 
@@ -142,14 +142,13 @@ object SdkManager {
         val isWindows = System.getProperty("os.name").lowercase().contains("windows")
         val command = if (isWindows) "where" else "which"
         
-        val process = ProcessBuilder(command, "cjc")
-            .redirectErrorStream(true)
-            .start()
-        
-        val output = process.inputStream.bufferedReader().readText().trim()
-        process.waitFor()
-        
-        if (process.exitValue() != 0 || output.isEmpty()) {
+        val result = ProcessRunner.run(
+            listOf(command, "cjc"),
+            timeout = Duration.ofSeconds(10)
+        ).getOrThrow()
+        val output = result.output.trim()
+
+        if (result.exitCode != 0 || output.isEmpty()) {
             throw IllegalStateException(
                 "未找到 cjc 编译器。请设置 CANGJIE_HOME 环境变量或将 cjc 添加到 PATH"
             )

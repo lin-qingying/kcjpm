@@ -146,12 +146,7 @@ class FileChangeDetector {
         
         if (file.fileSize() != metadata.size) return false
         
-        val currentModified = file.getLastModifiedTime().toMillis()
-        if (currentModified != metadata.lastModified) {
-            return computeFileHash(file) == metadata.contentHash
-        }
-        
-        return true
+        return computeFileHash(file) == metadata.contentHash
     }
 }
 

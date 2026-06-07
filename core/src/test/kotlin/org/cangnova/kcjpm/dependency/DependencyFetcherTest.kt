@@ -1,12 +1,16 @@
 package org.cangnova.kcjpm.dependency
 
 import io.kotest.matchers.shouldBe
+import io.kotest.matchers.shouldNotBe
 import io.kotest.matchers.types.shouldBeInstanceOf
 import org.cangnova.kcjpm.build.Dependency
 import org.cangnova.kcjpm.config.DependencyConfig
 import org.cangnova.kcjpm.config.RegistryConfig
+import org.cangnova.kcjpm.process.ProcessRunner
 import org.cangnova.kcjpm.test.BaseTest
 import java.nio.file.Path
+import java.time.Duration
+import kotlin.io.path.writeText
 
 class
 DependencyFetcherTest : BaseTest() {
@@ -66,38 +70,40 @@ DependencyFetcherTest : BaseTest() {
         test("GitDependencyFetcher 应该使用标签创建 GitDependency") {
             val project = createTestProject()
             val cacheDir = createTempDir("cache")
+            val gitRepository = createLocalGitRepository()
             val fetcher = GitDependencyFetcher(cacheDir)
             
             val config = DependencyConfig(
-                git = "https://gitcode.com/Cangjie-TPC/markdown4cj.git",
+                git = gitRepository.toUri().toString(),
                 tag = "v1.1.2",
                 version = "1.1.2"
             )
             
-            val result = fetcher.fetch("markdown4cj", config, project.root, null)
+            val result = fetcher.fetch("local-git-lib", config, project.root, null)
             
             result.isSuccess shouldBe true
             val dep = result.getOrThrow()
             dep.shouldBeInstanceOf<Dependency.GitDependency>()
-            dep.name shouldBe "markdown4cj"
+            dep.name shouldBe "local-git-lib"
             dep.version shouldBe "1.1.2"
-            dep.url shouldBe "https://gitcode.com/Cangjie-TPC/markdown4cj.git"
+            dep.url shouldBe gitRepository.toUri().toString()
             dep.reference.shouldBeInstanceOf<Dependency.GitReference.Tag>()
             (dep.reference as Dependency.GitReference.Tag).name shouldBe "v1.1.2"
-            dep.localPath shouldBe cacheDir.resolve("git/markdown4cj")
+            dep.localPath shouldBe cacheDir.resolve("git/local-git-lib")
         }
         
         test("GitDependencyFetcher 应该使用分支创建 GitDependency") {
             val project = createTestProject()
             val cacheDir = createTempDir("cache")
+            val gitRepository = createLocalGitRepository()
             val fetcher = GitDependencyFetcher(cacheDir)
             
             val config = DependencyConfig(
-                git = "https://gitcode.com/Cangjie-TPC/markdown4cj.git",
+                git = gitRepository.toUri().toString(),
                 branch = "master"
             )
             
-            val result = fetcher.fetch("markdown4cj", config, project.root, null)
+            val result = fetcher.fetch("local-git-lib", config, project.root, null)
             
             result.isSuccess shouldBe true
             val dep = result.getOrThrow()
@@ -158,6 +164,24 @@ DependencyFetcherTest : BaseTest() {
             dep.name shouldBe "std-http"
             dep.version shouldBe "1.2.0"
         }
+
+        test("RegistryDependencyFetcher 应该兼容字符串形式的中心仓 index-version") {
+            val project = createTestProject()
+            val cacheDir = createTempDir("cache")
+            val httpClient = MockDependencyHttpClient().also {
+                it.indexText = """
+                    {"name":"demo","version":"1.1.8","dependencies":[],"sha256sum":"mock-sha256-demo","yanked":false,"test-dependencies":[],"script-dependencies":[],"cjc-version":"1.0.1","index-version":"1"}
+                """.trimIndent()
+            }
+            val fetcher = RegistryDependencyFetcher(cacheDir, httpClient)
+
+            val result = fetcher.fetch("demo", DependencyConfig(version = "1.1.8"), project.root, null)
+
+            result.isSuccess shouldBe true
+            val dep = result.getOrThrow() as Dependency.RegistryDependency
+            dep.version shouldBe "1.1.8"
+            dep.checksum shouldBe "sha256:mock-sha256-demo"
+        }
         
         test("RegistryDependencyFetcher 应该使用默认仓库 URL") {
             val project = createTestProject()
@@ -171,7 +195,83 @@ DependencyFetcherTest : BaseTest() {
             
             result.isSuccess shouldBe true
             val dep = result.getOrThrow() as Dependency.RegistryDependency
-            dep.registryUrl shouldBe "https://repo.cangjie-lang.cn"
+            dep.registryUrl shouldBe CentralRepositoryDefaults.DEFAULT_REGISTRY_URL
+            httpClient.requestedUrls shouldBe listOf(
+                "${CentralRepositoryDefaults.DEFAULT_REGISTRY_URL}/index/st/d-/std-http",
+                "${CentralRepositoryDefaults.DEFAULT_REGISTRY_URL}/pkg/std-http/1.2.0"
+            )
+        }
+
+        test("RegistryDependencyFetcher 应该解析中心仓版本范围并选择最高可用版本") {
+            val project = createTestProject()
+            val cacheDir = createTempDir("cache")
+            val httpClient = MockDependencyHttpClient()
+            val fetcher = RegistryDependencyFetcher(cacheDir, httpClient)
+
+            val config = DependencyConfig(version = "[1.2.0, 2.0.0)")
+
+            val result = fetcher.fetch("std-http", config, project.root, null)
+
+            result.isSuccess shouldBe true
+            val dep = result.getOrThrow() as Dependency.RegistryDependency
+            dep.version shouldBe "1.3.0"
+            dep.checksum shouldBe "sha256:mock-sha256-130"
+            httpClient.requestedUrls.last() shouldBe "${CentralRepositoryDefaults.DEFAULT_REGISTRY_URL}/pkg/std-http/1.3.0"
+        }
+
+        test("RegistryDependencyFetcher 应该支持组织内制品") {
+            val project = createTestProject()
+            val cacheDir = createTempDir("cache")
+            val httpClient = MockDependencyHttpClient()
+            val fetcher = RegistryDependencyFetcher(cacheDir, httpClient)
+
+            val config = DependencyConfig(version = "4.0.0")
+
+            val result = fetcher.fetch("org::dep4", config, project.root, null)
+
+            result.isSuccess shouldBe true
+            val dep = result.getOrThrow() as Dependency.RegistryDependency
+            dep.name shouldBe "org::dep4"
+            dep.version shouldBe "4.0.0"
+            dep.cacheName shouldBe "org__dep4"
+            dep.localPath shouldBe cacheDir
+                .resolve("registry")
+                .resolve(RegistryCacheLayout.registryScope(CentralRepositoryDefaults.DEFAULT_REGISTRY_URL))
+                .resolve("org__dep4")
+                .resolve("4.0.0")
+            httpClient.requestedUrls shouldBe listOf(
+                "${CentralRepositoryDefaults.DEFAULT_REGISTRY_URL}/index/de/p4/dep4?organization=org",
+                "${CentralRepositoryDefaults.DEFAULT_REGISTRY_URL}/pkg/dep4/4.0.0?organization=org"
+            )
+        }
+
+        test("RegistryDependencyFetcher 应该在默认仓失败后使用镜像") {
+            val project = createTestProject()
+            val cacheDir = createTempDir("cache")
+            val httpClient = MockDependencyHttpClient().also {
+                it.failingTextUrlPrefixes.add("https://empty.repo/registry")
+                it.indexText = """
+                    {"organization":null,"name":"std-http","version":"1.2.0","sha256sum":"mock-sha256","yanked":false,"index-version":1}
+                """.trimIndent()
+            }
+            val fetcher = RegistryDependencyFetcher(cacheDir, httpClient)
+
+            val registry = RegistryConfig(
+                default = "https://empty.repo/registry",
+                mirrors = listOf("https://mirror.repo/registry")
+            )
+            val config = DependencyConfig(version = "1.2.0")
+
+            val result = fetcher.fetch("std-http", config, project.root, registry)
+
+            result.isSuccess shouldBe true
+            val dep = result.getOrThrow() as Dependency.RegistryDependency
+            dep.registryUrl shouldBe "https://mirror.repo/registry"
+            httpClient.requestedUrls shouldBe listOf(
+                "https://empty.repo/registry/index/st/d-/std-http",
+                "https://mirror.repo/registry/index/st/d-/std-http",
+                "https://mirror.repo/registry/pkg/std-http/1.2.0"
+            )
         }
         
         test("RegistryDependencyFetcher 应该使用配置的默认仓库") {
@@ -188,6 +288,29 @@ DependencyFetcherTest : BaseTest() {
             result.isSuccess shouldBe true
             val dep = result.getOrThrow() as Dependency.RegistryDependency
             dep.registryUrl shouldBe "https://custom.repo.com"
+        }
+
+        test("RegistryDependencyFetcher 不应该复用不同仓库的同名同版本缓存") {
+            val project = createTestProject()
+            val cacheDir = createTempDir("cache")
+            val httpClient = MockDependencyHttpClient()
+            val fetcher = RegistryDependencyFetcher(cacheDir, httpClient)
+
+            val defaultDep = fetcher.fetch(
+                "std-http",
+                DependencyConfig(version = "1.2.0"),
+                project.root,
+                null
+            ).getOrThrow() as Dependency.RegistryDependency
+            val customDep = fetcher.fetch(
+                "std-http",
+                DependencyConfig(version = "1.2.0"),
+                project.root,
+                RegistryConfig(default = "https://custom.repo.com")
+            ).getOrThrow() as Dependency.RegistryDependency
+
+            defaultDep.localPath shouldNotBe customDep.localPath
+            defaultDep.localPath?.parent?.parent shouldNotBe customDep.localPath?.parent?.parent
         }
         
         test("RegistryDependencyFetcher 应该使用私有仓库") {
@@ -236,6 +359,29 @@ DependencyFetcherTest : BaseTest() {
             
             result.isFailure shouldBe true
         }
+
+        test("RegistryDependencyFetcher 应该将中心仓 404 归类为依赖不存在") {
+            val project = createTestProject()
+            val cacheDir = createTempDir("cache")
+            val httpClient = object : DependencyHttpClient {
+                override fun download(url: String, targetDir: Path): Result<Unit> =
+                    Result.failure(UnsupportedOperationException("download is not used"))
+
+                override fun getText(url: String, headers: Map<String, String>): Result<String> =
+                    Result.failure(RuntimeException("Failed to read from $url: HTTP 404"))
+            }
+            val fetcher = RegistryDependencyFetcher(cacheDir, httpClient)
+
+            val result = fetcher.fetch(
+                "missing-lib",
+                DependencyConfig(version = "1.0.0"),
+                project.root,
+                null
+            )
+
+            result.isFailure shouldBe true
+            result.exceptionOrNull()?.message shouldBe "Dependency not found in registry: missing-lib@1.0.0"
+        }
         
         test("RegistryDependencyFetcher 应该在私有仓库未配置时失败") {
             val project = createTestProject()
@@ -248,6 +394,33 @@ DependencyFetcherTest : BaseTest() {
             val result = fetcher.fetch("private-lib", config, project.root, null)
             
             result.isFailure shouldBe true
+        }
+    }
+
+    private fun createLocalGitRepository(): Path {
+        val repository = createTempDir("git-repository")
+        runGit(repository, "init")
+        runGit(repository, "config", "user.email", "kcjpm-test@example.com")
+        runGit(repository, "config", "user.name", "KCJPM Test")
+
+        repository.resolve("README.md").writeText("local git dependency")
+        runGit(repository, "add", "README.md")
+        runGit(repository, "commit", "-m", "Initial commit")
+        runGit(repository, "branch", "-M", "master")
+        runGit(repository, "tag", "v1.1.2")
+
+        return repository
+    }
+
+    private fun runGit(repository: Path, vararg args: String) {
+        val result = ProcessRunner.run(
+            listOf("git") + args,
+            workingDirectory = repository,
+            timeout = Duration.ofSeconds(30)
+        ).getOrThrow()
+
+        require(result.exitCode == 0) {
+            "git ${args.joinToString(" ")} failed: ${result.output}"
         }
     }
 }

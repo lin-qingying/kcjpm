@@ -1,6 +1,8 @@
 package org.cangnova.kcjpm.config
 
 import org.cangnova.kcjpm.build.*
+import org.cangnova.kcjpm.dependency.CentralRepositorySettingsLoader
+import org.cangnova.kcjpm.dependency.RegistryUrlResolver
 import java.nio.file.Files
 import java.nio.file.Path
 import kotlin.streams.asSequence
@@ -75,9 +77,29 @@ object ConfigToContextConverter {
         projectRoot: Path,
         registry: RegistryConfig?
     ): List<Dependency> {
+        val effectiveRegistry = resolveEffectiveRegistry(deps, projectRoot, registry)
         return deps.mapNotNull { (name, depConfig) ->
-            parseDependency(name, depConfig, projectRoot, registry)
+            parseDependency(name, depConfig, projectRoot, effectiveRegistry)
         }
+    }
+
+    private fun resolveEffectiveRegistry(
+        deps: Map<String, DependencyConfig>,
+        projectRoot: Path,
+        registry: RegistryConfig?
+    ): RegistryConfig? {
+        if (registry != null) {
+            return registry
+        }
+
+        val hasRegistryDependency = deps.values.any { dependency ->
+            !dependency.optional && dependency.version != null && dependency.path == null && dependency.git == null
+        }
+        if (!hasRegistryDependency) {
+            return null
+        }
+
+        return CentralRepositorySettingsLoader.load(projectRoot).getOrThrow().toRegistryConfig()
     }
     
     private fun parseDependency(
@@ -133,16 +155,11 @@ object ConfigToContextConverter {
         }
     }
     
-    private fun resolveRegistryUrl(registryName: String?, registry: RegistryConfig?): String {
-        if (registryName == null) {
-            return registry?.default ?: "https://repo.cangjie-lang.cn"
-        }
-        
-        return when (registryName) {
-            "default" -> registry?.default ?: "https://repo.cangjie-lang.cn"
-            "private" -> registry?.privateUrl ?: throw IllegalArgumentException("Private registry not configured")
-            else -> registryName
-        }
+    private fun resolveRegistryUrl(
+        registryName: String?,
+        registry: RegistryConfig?
+    ): String {
+        return RegistryUrlResolver.resolve(registryName, registry).first()
     }
     
     private fun discoverSourceFiles(projectRoot: Path, buildConfig: BuildConfig?): List<Path> {

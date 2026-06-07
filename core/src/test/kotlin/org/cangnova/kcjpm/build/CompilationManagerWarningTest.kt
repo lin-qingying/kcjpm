@@ -6,13 +6,14 @@ import kotlinx.coroutines.runBlocking
 import org.cangnova.kcjpm.test.BaseTest
 import java.nio.file.Path
 import kotlin.io.path.Path
+import kotlin.io.path.exists
 
 class CompilationManagerWarningTest : BaseTest() {
     
     private val bsonProjectPath = Path("D:\\code\\cangjie\\bson")
     
     init {
-        test("应该能够捕获编译警告") {
+        test("应该能够捕获编译警告").config(enabled = isExternalBsonTestEnabled()) {
             val compilationManager = CompilationManager()
             
             val sourceFiles = listOf(
@@ -30,37 +31,20 @@ class CompilationManagerWarningTest : BaseTest() {
             runBlocking {
                 val result = with(context) { compilationManager.compile() }
                 
-                if (result.isFailure) {
-                    println("编译失败:")
-                    result.exceptionOrNull()?.printStackTrace()
-                }
-                
                 result.isSuccess shouldBe true
                 
                 val report = compilationManager.getReport()!!
                 
                 val packageReports = report.packages
-                println("=== 编译报告 ===")
-                println("包数量: ${packageReports.size}")
-                
-                packageReports.forEach { pkgReport ->
-                    println("\n包: ${pkgReport.packageName}")
-                    println("  成功: ${pkgReport.success}")
-                    println("  错误数: ${pkgReport.errors.size}")
-                    println("  警告数: ${pkgReport.warnings.size}")
-                    
-                    pkgReport.warnings.forEach { warning ->
-                        println("  警告: ${warning.file}:${warning.line}:${warning.column}: ${warning.message}")
-                    }
-                }
-                
                 val totalWarnings = packageReports.sumOf { it.warnings.size }
-                println("\n总警告数: $totalWarnings")
                 
                 totalWarnings shouldBe 1
             }
         }
     }
+
+    private fun isExternalBsonTestEnabled(): Boolean =
+        System.getProperty("kcjpm.external.tests") == "true" && bsonProjectPath.exists()
     
     private fun createBsonCompilationContext(
         projectRoot: Path,

@@ -91,10 +91,11 @@ class CompilationCommandBuilder {
         packageDir: Path,
         outputDir: Path,
         outputFileName: String,
-        outputType: String = "staticlib",
+        outputType: String? = null,
         importPaths: List<Path> = emptyList(),
         hasSubPackages: Boolean = true
     ): List<String> = buildList {
+        val resolvedOutputType = outputType ?: getLibraryOutputType(ctx.outputType)
         add(getCompilerCommand())
         
         importPaths.forEach { importPath ->
@@ -114,7 +115,7 @@ class CompilationCommandBuilder {
 
 
         add("--output-dir=${outputDir}")
-        add("--output-type=${outputType}")
+        add("--output-type=${resolvedOutputType}")
         add("-o=${outputFileName}")
         
         addAll(ctx.buildConfig.optimizationLevel.toArgs())

@@ -2,6 +2,7 @@ package org.cangnova.kcjpm.dependency
 
 import org.cangnova.kcjpm.build.Dependency
 import org.cangnova.kcjpm.config.CjpmConfig
+import org.cangnova.kcjpm.config.DependencyConfig
 import org.cangnova.kcjpm.lock.*
 import java.nio.file.Path
 
@@ -57,7 +58,125 @@ class DependencyManagerWithLock(
             )
         }
         
-        currentDeps
+        val lockedDeps = installLockedPackages(lockFile, config, projectRoot).getOrThrow()
+        validateLockedResolution(lockFile, lockedDeps).getOrThrow()
+
+        lockedDeps
+    }
+
+    private fun installLockedPackages(
+        lockFile: LockFile,
+        config: CjpmConfig,
+        projectRoot: Path
+    ): Result<List<Dependency>> = runCatching {
+        val lockedPackagesByName = lockFile.packages.associateBy { it.name }
+        val lockedPackageNames = collectLockedPackageClosure(config.dependencies.keys, lockedPackagesByName)
+
+        val lockedDependencyConfig = lockedPackageNames.mapNotNull { packageName ->
+            val lockedPackage = lockedPackagesByName[packageName] ?: return@mapNotNull null
+            lockedPackage.name to lockedPackage.toDependencyConfig()
+        }.toMap()
+        val missingDirectDependencyConfig = config.dependencies.filterKeys { it !in lockedPackagesByName }
+
+        val dependencies = mutableListOf<Dependency>()
+        val lockedConfig = config.copy(dependencies = lockedDependencyConfig)
+        if (lockedDependencyConfig.isNotEmpty()) {
+            dependencies.addAll(baseManager.resolveDependencies(lockedConfig, projectRoot).getOrThrow())
+        }
+
+        if (missingDirectDependencyConfig.isNotEmpty()) {
+            val missingConfig = config.copy(dependencies = missingDirectDependencyConfig)
+            dependencies.addAll(baseManager.installDependencies(missingConfig, projectRoot).getOrThrow())
+        }
+
+        dependencies.distinctBy { it.name }
+    }
+
+    private fun collectLockedPackageClosure(
+        directDependencyNames: Set<String>,
+        lockedPackagesByName: Map<String, LockedPackage>
+    ): Set<String> {
+        val selected = linkedSetOf<String>()
+
+        fun visit(packageName: String) {
+            if (!selected.add(packageName)) {
+                return
+            }
+
+            val lockedPackage = lockedPackagesByName[packageName] ?: return
+            lockedPackage.dependencies.forEach(::visit)
+        }
+
+        directDependencyNames.forEach(::visit)
+        return selected.filterTo(linkedSetOf()) { it in lockedPackagesByName }
+    }
+
+    private fun LockedPackage.toDependencyConfig(): DependencyConfig {
+        val lockedVersion = version.takeUnless { it == "unknown" }
+        return when (val source = source) {
+            is PackageSource.Registry -> DependencyConfig(
+                version = version,
+                registry = source.url
+            )
+            is PackageSource.Path -> DependencyConfig(
+                version = lockedVersion,
+                path = source.path
+            )
+            is PackageSource.Git -> {
+                val resolvedCommit = source.resolvedCommit.takeUnless { it == "unknown" }
+                if (resolvedCommit != null) {
+                    DependencyConfig(
+                        version = lockedVersion,
+                        git = source.url,
+                        commit = resolvedCommit
+                    )
+                } else {
+                    when (val reference = source.reference) {
+                        is PackageSource.GitReference.Tag -> DependencyConfig(
+                            version = lockedVersion,
+                            git = source.url,
+                            tag = reference.name
+                        )
+                        is PackageSource.GitReference.Branch -> DependencyConfig(
+                            version = lockedVersion,
+                            git = source.url,
+                            branch = reference.name
+                        )
+                        is PackageSource.GitReference.Commit -> DependencyConfig(
+                            version = lockedVersion,
+                            git = source.url,
+                            commit = reference.hash
+                        )
+                    }
+                }
+            }
+        }
+    }
+
+    private fun validateLockedResolution(
+        lockFile: LockFile,
+        dependencies: List<Dependency>
+    ): Result<Unit> = runCatching {
+        val lockedPackages = lockFile.packages.associateBy { it.name }
+
+        dependencies.forEach { dependency ->
+            val locked = lockedPackages[dependency.name]
+                ?: return@forEach
+            val dependencyVersion = dependency.version ?: "unknown"
+            if (dependencyVersion != locked.version) {
+                throw IllegalStateException(
+                    "锁文件依赖版本不一致: ${dependency.name} 锁定=${locked.version}, 实际=$dependencyVersion"
+                )
+            }
+
+            if (dependency is Dependency.RegistryDependency && locked.checksum != null) {
+                if (dependency.checksum != locked.checksum) {
+                    throw IllegalStateException(
+                        "锁文件依赖校验和不一致: ${dependency.name} 锁定=${locked.checksum}, 实际=${dependency.checksum}"
+                    )
+                }
+            }
+        }
     }
     
     fun validateLockFile(
